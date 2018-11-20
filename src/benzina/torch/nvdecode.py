@@ -301,7 +301,7 @@ class NvdecodeWarpTransform:
 	scale, skew and translation 3 x 3 matrix. The transformation is called for each
 	sample of a batch.
 	"""
-	def __init__(self, *args, **kwargs):
+	def __init__(self):
 		pass
 	"""
 	__call__ needs to be implemented in subclasses
@@ -317,15 +317,13 @@ class NvdecodeWarpTransform:
 		a tuple of numerics.
 	"""
 	def __call__(self, dataloaderiter, i):
-		return (1.0, 0.0, 0.0,
-		        0.0, 1.0, 0.0,
-		        0.0, 0.0, 1.0)
+		return NotImplementedError('__call__ needs to be implemented in subclasses')
 class NvdecodeOOBTransform:
 	"""
 	Interface class that represents an out of bounds transformation. The
 	transformation is called for each sample of a batch.
 	"""
-	def __init__(self, *args, **kwargs):
+	def __init__(self):
 		pass
 	"""
 	__call__ needs to be implemented in subclasses
@@ -341,7 +339,7 @@ class NvdecodeOOBTransform:
 		use when no data is available. It should be in RGB order.
 	"""
 	def __call__(self, dataloaderiter, i):
-		return (0.0, 0.0, 0.0)
+		return NotImplementedError('__call__ needs to be implemented in subclasses')
 class NvdecodeColorTransform:
 	"""
 	Interface class that represents a color transformation from YCbCr to RGB as
@@ -379,7 +377,7 @@ class NvdecodeColorTransform:
 			Y       in [16,235]
 			Cb,Cr   in [16,240]
 	"""
-	def __init__(self, *args, **kwargs):
+	def __init__(self):
 		pass
 	"""
 	__call__ needs to be implemented in subclasses
@@ -395,13 +393,13 @@ class NvdecodeColorTransform:
 		method to use when converting a sample's YCbCr value to RGB.
 	"""
 	def __call__(self, dataloaderiter, i):
-		return (0,)
+		return NotImplementedError('__call__ needs to be implemented in subclasses')
 class NvdecodeScaleTransform:
 	"""
 	Interface class that represents a scale transformation. The transformation
 	is called for each sample of a batch.
 	"""
-	def __init__(self, *args, **kwargs):
+	def __init__(self):
 		pass
 	"""
 	__call__ needs to be implemented in subclasses
@@ -418,13 +416,13 @@ class NvdecodeScaleTransform:
 		channels of a sample.
 	"""
 	def __call__(self, dataloaderiter, i):
-		return (1.0, 1.0, 1.0)
+		return NotImplementedError('__call__ needs to be implemented in subclasses')
 class NvdecodeBiasTransform:
 	"""
 	Interface class that represents a bias transformation. The transformation
 	is called for each sample of a batch.
 	"""
-	def __init__(self, *args, **kwargs):
+	def __init__(self):
 		pass
 	"""
 	__call__ needs to be implemented in subclasses
@@ -441,7 +439,7 @@ class NvdecodeBiasTransform:
 		channels of a sample.
 	"""
 	def __call__(self, dataloaderiter, i):
-		return (0.0, 0.0, 0.0)
+		return NotImplementedError('__call__ needs to be implemented in subclasses')
 
 
 class NvdecodeConstantWarpTransform (NvdecodeWarpTransform):
