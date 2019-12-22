@@ -100,7 +100,7 @@ class File:
             return None
 
         offset, size = location
-        return offset + self._offset, size
+        return self._offset + offset, size
 
     def sample_bytes(self, trak, index):
         location = self.sample_location(trak, index)
@@ -129,13 +129,15 @@ class File:
                 raise RuntimeError("Could not find trak [{}]".format(label))
 
         stsd = next(find_boxes(get_sample_table(trak).boxes, b"stsd"))
-        _vc1 = next(find_boxes(stsd.boxes, [b"avc1", b"hvc1"]), None)
+        __c1 = next(find_boxes(stsd.boxes, [b"avc1", b"hec1", b"hvc1"]), None)
 
-        if not _vc1:
+        if not __c1:
             return None
 
-        _vcC = next(find_boxes(_vc1.boxes, [b"avcC", b"hvcC"]), None)
-        return self._moov_pos + _vcC.header.start_pos, _vcC.header.box_size
+        _vcC = next(find_boxes(__c1.boxes, [b"avcC", b"hvcC"]))
+        offset, size = (_vcC.header.start_pos + _vcC.header.header_size,
+                        _vcC.header.box_size - _vcC.header.header_size)
+        return self._moov_pos + offset, size
 
     def _parse(self):
         self._disk_file.seek(self._offset)

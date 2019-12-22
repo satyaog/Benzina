@@ -1,5 +1,9 @@
 import os
 
+from bitstring import ConstBitStream
+
+from pybzparse import Parser, headers
+
 from benzina.utils.file import File, Track
 
 
@@ -33,7 +37,55 @@ def test_file():
             assert sub_file.len(sub_input_trak) == 1
             assert sub_file.shape(sub_input_trak) == (600, 535)
             assert sub_file.sample_location(sub_input_trak, 0) == (232384, 215750)
-            assert sub_file.video_configuration_location(sub_input_trak) == (623981, 2196)
+            assert sub_file.video_configuration_location(sub_input_trak) == (623989, 2188)
+
+            video_configuration_offset, video_configuration_size = \
+                sub_file.video_configuration_location(sub_input_trak)
+
+            hvcC_header = headers.BoxHeader()
+            hvcC_header.start_pos = -8
+            hvcC_header.type = b"hvcC"
+            hvcC_header.box_size = video_configuration_size + 8
+
+            with open(dataset_path, "rb") as disk_file:
+                disk_file.seek(video_configuration_offset)
+                hvcC_bs = ConstBitStream(disk_file.read(video_configuration_size) + b'\n')
+            hvcC = Parser.parse_box(hvcC_bs, hvcC_header)
+            hvcC.load(hvcC_bs)
+
+            assert hvcC.padding == b''
+            assert hvcC.configuration_version == 1
+
+            assert hvcC.general_profile_space == 0
+            assert hvcC.general_tier_flag == 0
+            assert hvcC.general_profile_idc == 1
+            assert hvcC.general_profile_compatibility_flags == 1610612736
+            assert hvcC.general_constraint_indicator_flags == 158329674399744
+            assert hvcC.general_level_idc == 120
+
+            assert hvcC.min_spatial_segmentation_idc == 0
+            assert hvcC.parallelism_type == 0
+            assert hvcC.chroma_format == 1
+            assert hvcC.bit_depth_luma_minus_8 == 0
+            assert hvcC.bit_depth_chroma_minus_8 == 0
+
+            assert hvcC.avg_frame_rate == 0
+            assert hvcC.constant_frame_rate == 0
+            assert hvcC.num_temporal_layers == 1
+            assert hvcC.temporal_id_nested == 1
+            assert hvcC.length_size_minus_one == 3
+            assert hvcC.num_of_arrays == 4
+            assert len(hvcC.arrays) == 4
+
+            array = hvcC.arrays[0]
+            assert array.array_completeness == 1
+            assert array.nal_unit_type == 32
+            assert array.num_nalus == 1
+            assert len(array.nalus) == 1
+
+            nalu = array.nalus[0]
+            assert nalu.nal_unit_length == 24
+            assert len(nalu.nal_unit) == 24
 
         target_trak = file.trak("bzna_target")
         assert file.len(target_trak) == 9
@@ -66,7 +118,7 @@ def test_file():
             assert sub_file.len(sub_thumb_trak) == 1
             assert sub_file.shape(sub_thumb_trak) == (512, 456)
             assert sub_file.sample_location(sub_thumb_trak, 0) == (448134, 175347)
-            assert sub_file.video_configuration_location(sub_thumb_trak) == (627529, 2231)
+            assert sub_file.video_configuration_location(sub_thumb_trak) == (627537, 2223)
 
 
 def test_track():
@@ -119,7 +171,7 @@ def test_track():
             assert sub_input_track.shape() == (600, 535)
             assert sub_input_track[0] == (232384, 215750)
 
-            assert sub_input_track.video_configuration_location() == (623981, 2196)
+            assert sub_input_track.video_configuration_location() == (623989, 2188)
             assert sub_input_track[0] == sub_input_track.sample_location(0)
 
         with track.sample_as_file(2) as sub_file:
@@ -129,7 +181,7 @@ def test_track():
             assert sub_input_track.shape() == (600, 535)
             assert sub_input_track[0] == (232384, 215750)
 
-            assert sub_input_track.video_configuration_location() == (623981, 2196)
+            assert sub_input_track.video_configuration_location() == (623989, 2188)
             assert sub_input_track[0] == sub_input_track.sample_location(0)
 
         with track.sample_as_file(2) as sub_file:
@@ -148,5 +200,5 @@ def test_track():
             assert sub_thumb_track.shape() == (512, 456)
             assert sub_thumb_track[0] == (448134, 175347)
 
-            assert sub_thumb_track.video_configuration_location() == (627529, 2231)
+            assert sub_thumb_track.video_configuration_location() == (627537, 2223)
             assert sub_thumb_track[0] == sub_thumb_track.sample_location(0)
