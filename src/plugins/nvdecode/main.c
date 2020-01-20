@@ -17,6 +17,8 @@
 
 #include "benzina/benzina-old.h"
 #include "benzina/plugins/nvdecode.h"
+#include "benzina/itu/h26x.h"
+#include "benzina/itu/h265.h"
 #include "kernels.h"
 
 
@@ -79,7 +81,8 @@ struct NVDECODE_RQ{
 	float           S   [3];           /* Scale */
 	float           OOB [3];           /* Out-of-bond color */
 	uint32_t        colorMatrix;       /* Color matrix selection */
-	uint8_t*        data;              /* Image payload;      From data.bin. */
+	uint8_t*        data;              /* Image payload; */
+	uint8_t*        hvcCData;          /* hvcC payload; */
 	CUVIDPICPARAMS* picParams;         /* Picture parameters. */
 	TIMESPEC        T_s_submit;        /* Time this request was submitted. */
 	TIMESPEC        T_s_start;         /* Time this request began processing. */
@@ -568,6 +571,7 @@ BENZINA_PLUGIN_STATIC int         nvdecodeHelpersStart            (NVDECODE_CTX*
 	for(i=0;i<ctx->totalSlots;i++){
 		ctx->request[i].picParams = &ctx->picParams[i];
 		ctx->request[i].data      = NULL;
+		ctx->request[i].hvcCData  = NULL;
 	}
 	
 	if(pthread_attr_init          (&attr)                          != 0){
@@ -722,6 +726,10 @@ BENZINA_PLUGIN_STATIC int         nvdecodeMaybeReapMallocs        (NVDECODE_CTX*
 			if(ctx->request[i].data){
 				free(ctx->request[i].data);
 				ctx->request[i].data = NULL;
+			}
+			if(ctx->request[i].hvcCData){
+				free(ctx->request[i].hvcCData);
+				ctx->request[i].hvcCData = NULL;
 			}
 		}
 	}
@@ -882,33 +890,6 @@ BENZINA_PLUGIN_STATIC int         nvdecodeReaderThrdWait          (NVDECODE_CTX*
 	return 1;
 }
 
-uint16_t buf_to_uint16(unsigned char* buffer){
-    uint16_t result = 0;
-    for (int i = 0; i < 4; ++i)
-    {
-        result |= ((uint16_t)buffer[i]) << (8 - 8 * i);
-    }
-    return result;
-}
-
-uint32_t buf_to_uint32(unsigned char* buffer){
-    uint32_t result = 0;
-    for (int i = 0; i < 4; ++i)
-    {
-        result |= ((uint32_t)buffer[i]) << (24 - 8 * i);
-    }
-    return result;
-}
-
-uint64_t buf_to_uint64(unsigned char* buffer){
-    uint64_t result = 0;
-    for (int i = 0; i < 8; ++i)
-    {
-        result |= ((uint64_t)buffer[i]) << (56 - 8 * i);
-    }
-    return result;
-}
-
 /**
  * @brief Perform the core operation of the reader thread.
  * 
@@ -951,54 +932,10 @@ BENZINA_PLUGIN_STATIC int         nvdecodeReaderThrdCore          (NVDECODE_CTX*
 		return 0;
 	}
 	
-	unsigned char* record = (unsigned char*)rd1.ptr;
-
-    uint32_t configurationVersion = (uint32_t)record[0];                                    // 0
-    uint32_t general_profile_space = (uint32_t)(record[1] >> 6);                            // 1 : 11000000
-    uint32_t general_tier_flag = (uint32_t)(record[1] >> 5 & 1);                            // 1 : 00100000
-    uint32_t general_profile_idc = (uint32_t)(record[1] & 31);                              // 1 : 00011111
-    uint32_t general_profile_compatibility_flags = buf_to_uint32(record + 2);               // 2 (2-5)
-    uint64_t general_constraint_indicator_flags = buf_to_uint64(record + 6) >> 16;          // 6 (6-11)
-    uint32_t general_level_idc = (uint32_t)record[12];                                      // 12
-    // uint32_t(4) reserved = ‘1111’b;
-    uint32_t min_spatial_segmentation_idc = (uint32_t)buf_to_uint16(record + 13) << 4 >> 4; // 13 (13-14) : 00001111 11111111 ...
-    // uint32_t(6) reserved = ‘111111’b;
-    uint32_t parallelismType = (uint32_t)(record[15] & 3);                                  // 15 : 00000011
-    // uint32_t(6) reserved = ‘111111’b;
-    uint32_t chromaFormat = (uint32_t)(record[16] & 3);                                     // 16 : 00000011
-    // uint32_t(5) reserved = ‘11111’b;
-    uint32_t bitDepthLumaMinus8 = (uint32_t)(record[17] & 7);                               // 17 : 00000111
-    // uint32_t(5) reserved = ‘11111’b;
-    uint32_t bitDepthChromaMinus8 = (uint32_t)(record[18] & 7);                             // 18 : 00000011
-    uint32_t avgFrameRate = (uint32_t)buf_to_uint16(record + 19);                           // 19 (19-20)
-    uint32_t constantFrameRate = (uint32_t)(record[21] >> 6);                               // 21 : 11000000
-    uint32_t numTemporalLayers = (uint32_t)(record[21] >> 3 & 7);                           // 21 : 00111000
-    uint32_t temporalIdNested = (uint32_t)(record[21] >> 2 & 1);                            // 21 : 00000100
-    uint32_t lengthSizeMinusOne = (uint32_t)(record[21] & 3);                               // 21 : 00000011
-    uint32_t numOfArrays = (uint32_t)record[22];                                            // 22
-
-    record += 22;
-    for (int i=0; i < numOfArrays; i++)
-    {
-        record += 1;
-        uint32_t array_completeness = (uint32_t)(record[0] >> 7);                           // 0 : 10000000
-        // uint32_t(1) reserved = 0;
-        uint32_t NAL_unit_type = (uint32_t)(record[0] & 63);                                // 0 : 00111111
-        uint32_t numNalus = (uint32_t)buf_to_uint16(record + 1);                            // 1 (1-2)
-
-        record += 2;
-        for (int j=0; j < numNalus; j++)
-        {
-            record += 1;
-            uint32_t nalUnitLength = (uint32_t)buf_to_uint16(record);                       // 0 (0-1)
-            // uint32_t(8*nalUnitLength) nalUnit;
-            record += 1+nalUnitLength;
-        }
-    }
-
 	/* Otherwise, report success. */
-	rq->data      = rd0.ptr;
-	rq->picParams = rd1.ptr;
+	rq->data                         = rd0.ptr;
+	rq->hvcCData                     = rd1.ptr;
+	rq->picParams->nBitstreamDataLen = rd0.len;
 	ctx->reader.cnt++;
 	pthread_cond_broadcast(&ctx->feeder.cond);
 	return 0;
@@ -1266,6 +1203,780 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdWait          (NVDECODE_CTX*
 	return 1;
 }
 
+uint16_t buf_to_uint16(const uint8_t* buffer){
+    uint16_t result = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        result |= ((uint16_t)buffer[i]) << (8 - 8 * i);
+    }
+    return result;
+}
+
+uint32_t buf_to_uint32(const uint8_t* buffer){
+    uint32_t result = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        result |= ((uint32_t)buffer[i]) << (24 - 8 * i);
+    }
+    return result;
+}
+
+uint64_t buf_to_uint64(const uint8_t* buffer){
+    uint64_t result = 0;
+    for (int i = 0; i < 8; ++i)
+    {
+        result |= ((uint64_t)buffer[i]) << (56 - 8 * i);
+    }
+    return result;
+}
+
+void skip_profile_tier_level(BENZ_ITU_H26XBS* bitstream, uint8_t max_sub_layers_minus1)
+{
+    benz_itu_h26xbs_skip_xn(bitstream, 2);  // uint8_t general_profile_space;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_tier_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t general_profile_idc;
+    benz_itu_h26xbs_skip_xn(bitstream, 32); // bool    general_profile_compatibility_flag[32];
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_progressive_source_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_interlaced_source_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_non_packed_constraint_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_frame_only_constraint_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 43); // bool general_max_12bit_constraint_flag;
+                                            // bool general_max_10bit_constraint_flag;
+                                            // bool general_max_8bit_constraint_flag;
+                                            // bool general_max_422chroma_constraint_flag;
+                                            // bool general_max_420chroma_constraint_flag;
+                                            // bool general_max_monochrome_constraint_flag;
+                                            // bool general_intra_constraint_flag;
+                                            // bool general_one_picture_only_constraint_flag;
+                                            // bool general_lower_bit_rate_constraint_flag;
+                                            // //uint64_t general_reserved_zero_34bits;
+                                            // //uint64_t general_reserved_zero_43bits;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool general_inbld_flag;
+                                            // //bool general_reserved_zero_bit;
+    benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t general_level_idc;
+    benz_itu_h26xbs_bigfill(bitstream);
+    // total bits skipped: 96
+    int sub_layer_profile_present_flag[6] = {0};
+    int sub_layer_level_present_flag[6] = {0};
+    for (int i = 0; i < max_sub_layers_minus1; i++)
+    {
+        sub_layer_profile_present_flag[i] = benz_itu_h26xbs_read_un(bitstream, 1);
+        sub_layer_level_present_flag[i] = benz_itu_h26xbs_read_un(bitstream, 1);
+    }
+    if (max_sub_layers_minus1 > 0)
+    {
+        for (int i = max_sub_layers_minus1; i < 8; i++)
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 2);  //uint8_t reserved_zero_2bits[6];
+        }
+    }
+    benz_itu_h26xbs_fill64b(bitstream);
+    for (int i = 0; i < max_sub_layers_minus1; i++)
+    {
+        if (sub_layer_profile_present_flag[i])
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 2);  // uint8_t sub_layer_profile_space[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_tier_flag[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t sub_layer_profile_idc[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 32); // bool sub_layer_profile_compatibility_flag[6][32];
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_progressive_source_flag[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_interlaced_source_flag[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_non_packed_constraint_flag[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_frame_only_constraint_flag[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 43); // bool sub_layer_max_12bit_constraint_flag[6];
+                                                    // bool sub_layer_max_10bit_constraint_flag[6];
+                                                    // bool sub_layer_max_8bit_constraint_flag[6];
+                                                    // bool sub_layer_max_422chroma_constraint_flag[6];
+                                                    // bool sub_layer_max_420chroma_constraint_flag[6];
+                                                    // bool sub_layer_max_monochrome_constraint_flag[6];
+                                                    // bool sub_layer_intra_constraint_flag[6];
+                                                    // bool sub_layer_one_picture_only_constraint_flag[6];
+                                                    // bool sub_layer_lower_bit_rate_constraint_flag[6];
+                                                    // //uint64_t sub_layer_reserved_zero_34bits[6];
+                                                    // //uint64_t sub_layer_reserved_zero_43bits[6];
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_inbld_flag[6];
+                                                    // //bool sub_layer_reserved_zero_bit[6];
+            benz_itu_h26xbs_bigfill(bitstream);
+            // total bits skipped: 88
+        }
+        if (sub_layer_level_present_flag[i])
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t sub_layer_level_idc[6];
+            // total bits skipped: 8
+        }
+    }
+
+    benz_itu_h26xbs_fill64b(bitstream);
+}
+
+void set_default_scaling_list(uint8_t* dstList, uint8_t* dstDcList, uint8_t sizeId, uint8_t matrixId)
+{
+    // Table 7-5
+    static const uint8_t DefaultScalingList0[16] = {
+        16, 16, 16, 16,
+        16, 16, 16, 16,
+        16, 16, 16, 16,
+        16, 16, 16, 16
+    };
+
+    // Table 7-6
+    static const uint8_t DefaultScalingList1[64] = {
+        16, 16, 16, 16, 16, 16, 16, 16,
+        16, 16, 17, 16, 17, 16, 17, 18,
+        17, 18, 18, 17, 18, 21, 19, 20,
+        21, 20, 19, 21, 24, 22, 22, 24,
+        24, 22, 22, 24, 25, 25, 27, 30,
+        27, 25, 25, 29, 31, 35, 35, 31,
+        29, 36, 41, 44, 41, 36, 47, 54,
+        54, 47, 65, 70, 65, 88, 88, 115
+    };
+
+    static const uint8_t DefaultScalingList2[64] = {
+        16, 16, 16, 16, 16, 16, 16, 16,
+        16, 16, 17, 17, 17, 17, 17, 18,
+        18, 18, 18, 18, 18, 20, 20, 20,
+        20, 20, 20, 20, 24, 24, 24, 24,
+        24, 24, 24, 24, 25, 25, 25, 25,
+        25, 25, 25, 28, 28, 28, 28, 28,
+        28, 33, 33, 33, 33, 33, 41, 41,
+        41, 41, 54, 54, 54, 71, 71, 91
+    };
+
+    // Table 7-3-Specification of siezId
+    switch (sizeId) {
+    case 0: // 4x4
+        memcpy(dstList, DefaultScalingList0, 16);
+        break;
+    case 1: // 8x8
+    case 2: // 16x16
+        if (matrixId <= 2)
+            memcpy(dstList, DefaultScalingList1, 64);
+        else
+            memcpy(dstList, DefaultScalingList2, 64);
+        break;
+    case 3: // 32x32
+        if (!matrixId)
+            memcpy(dstList, DefaultScalingList1, 64);
+        else
+            memcpy(dstList, DefaultScalingList2, 64);
+        break;
+//    default:
+//        ERROR("Can't get the scaling list by sizeId(%d)", sizeId);
+//        return false;
+    }
+
+    if (sizeId > 1)
+        dstDcList[matrixId] = 16;
+
+//    return true;
+}
+
+void decode_scaling_list_data(CUVIDHEVCPICPARAMS* hevcPP, BENZ_ITU_H26XBS* bitstream)
+{
+#ifndef benz__min
+#define benz__min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+#endif // benz__min
+
+    uint8_t* dstDcList = NULL;
+    uint8_t* dstList = NULL;
+    uint8_t* refList = NULL;
+
+    size_t size = 64;
+    uint8_t refMatrixId = 0;
+    int scaling_list_pred_mode_flag = 0;
+    uint8_t scaling_list_pred_matrix_id_delta = 0;
+    uint8_t nextCoef;
+    uint8_t coefNum;
+    int16_t scaling_list_delta_coef;
+
+    for (uint32_t sizeId = 0; sizeId < 4; sizeId++)
+    {
+        for (uint32_t matrixId = 0; matrixId < 6; matrixId += (sizeId == 3) ? 3 : 1)
+        {
+            size = 64;
+            // Table 7-3
+            switch (sizeId)
+            {
+            case 0: // 4x4
+                dstList = hevcPP->ScalingList4x4[matrixId];
+                size = 16;
+                break;
+            case 1: // 8x8
+                dstList = hevcPP->ScalingList8x8[matrixId];
+                break;
+            case 2: // 16x16
+                dstList = hevcPP->ScalingList16x16[matrixId];
+                dstDcList = hevcPP->ScalingListDCCoeff16x16;
+                break;
+            case 3: // 32x32
+                dstList = hevcPP->ScalingList32x32[matrixId];
+                dstDcList = hevcPP->ScalingListDCCoeff32x32;
+            }
+
+            scaling_list_pred_mode_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+            if (!scaling_list_pred_mode_flag)
+            {
+                if (sizeId < 3)
+                {
+                    scaling_list_pred_matrix_id_delta = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 6]
+                }
+                else if (3 == sizeId)
+                {
+                    // as spec "7.4.5 Scaling list data semantics",
+                    // matrixId should be equal to 3 when scaling_list_pred_matrix_id_delta
+                    // is greater than 0.
+                    scaling_list_pred_matrix_id_delta = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 2]
+                }
+//                else
+//                {
+//                    ERROR("sizeId(%u) should be in the range of[0, 3].", sizeId);
+//                    return false;
+//                }
+
+                if (!scaling_list_pred_matrix_id_delta)
+                {
+                    set_default_scaling_list(dstList, dstDcList, sizeId, matrixId);
+                }
+                else
+                {
+                    //7-40
+                    refMatrixId = matrixId - scaling_list_pred_matrix_id_delta * (sizeId == 3 ? 3 : 1);
+                    // get referrence list
+                    switch (sizeId)
+                    {
+                    case 0: // 4x4
+                        refList = hevcPP->ScalingList4x4[refMatrixId];
+                        break;
+                    case 1: // 8x8
+                        refList = hevcPP->ScalingList8x8[refMatrixId];
+                        break;
+                    case 2: // 16x16
+                        refList = hevcPP->ScalingList16x16[refMatrixId];
+                        break;
+                    case 3: // 32x32
+                        refList = hevcPP->ScalingList32x32[refMatrixId];
+                    }
+
+                    for (uint32_t i = 0; i < size; i++)
+                    {
+                        dstList[i] = refList[i];
+                    }
+
+                    if (sizeId > 1)
+                    {
+                        dstDcList[matrixId] = dstDcList[refMatrixId];
+                    }
+                }
+            }
+            else
+            {
+                nextCoef = 8;
+                coefNum = benz__min(64, (1 << (4 + (sizeId << 1))));
+
+                if (sizeId > 1)
+                {
+                    int32_t scaling_list_dc_coef_minus8;
+                    scaling_list_dc_coef_minus8 = benz_itu_h26xbs_read_se(bitstream); // [-7, 247]
+                    dstDcList[matrixId] = scaling_list_dc_coef_minus8 + 8;
+                    nextCoef = dstDcList[matrixId];
+                }
+
+                for (uint32_t i = 0; i < coefNum; i++)
+                {
+                    scaling_list_delta_coef = benz_itu_h26xbs_read_se(bitstream); // [-128, 127]
+                    nextCoef = (nextCoef + scaling_list_delta_coef + 256) % 256;
+                    dstList[i] = nextCoef;
+                }
+
+                benz_itu_h26xbs_fill64b(bitstream);
+            }
+        }
+    }
+
+    benz_itu_h26xbs_fill64b(bitstream);
+
+#ifndef benz__min
+#undef benz__min
+#endif // benz__min
+}
+
+void skip_sub_hrd_parameters(BENZ_ITU_H26XBS* bitstream, uint8_t cpb_cnt_minus1, int sub_pic_hrd_params_present_flag)
+{
+//    uint32_t bit_rate_value_minus1[32];
+//    uint32_t cpb_size_value_minus1[32];
+//    uint32_t cpb_size_du_value_minus1[32];
+//    uint32_t bit_rate_du_value_minus1[32];
+//    bool cbr_flag[32];
+    for (uint8_t i = 0; i <= cpb_cnt_minus1; i++)
+    {
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t bit_rate_value_minus1[32]; //[0, 0xFFFFFFFE]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t cpb_size_value_minus1[32]; //[0, 0xFFFFFFFE]
+        benz_itu_h26xbs_bigfill(bitstream);
+        if (sub_pic_hrd_params_present_flag)
+        {
+            benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t cpb_size_du_value_minus1[32]; //[0, 0xFFFFFFFE]
+            benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t bit_rate_du_value_minus1[32]; //[0, 0xFFFFFFFE]
+            benz_itu_h26xbs_bigfill(bitstream);
+        }
+        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool cbr_flag[32];
+    }
+
+    benz_itu_h26xbs_fill64b(bitstream);
+}
+
+void skip_hrd_parameters(BENZ_ITU_H26XBS* bitstream, uint8_t max_sub_layers_minus1)
+{
+//    static const uint8_t MAXSUBLAYERS = 7;
+
+    int nal_hrd_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    int vcl_hrd_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    int sub_pic_hrd_params_present_flag = 0;
+    if (nal_hrd_parameters_present_flag || vcl_hrd_parameters_present_flag)
+    {
+        sub_pic_hrd_params_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        if (sub_pic_hrd_params_present_flag)
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t tick_divisor_minus2;
+            benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t du_cpb_removal_delay_increment_length_minus1;
+            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_pic_cpb_params_in_pic_timing_sei_flag;
+            benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t dpb_output_delay_du_length_minus1;
+        }
+
+        benz_itu_h26xbs_skip_xn(bitstream, 4);  // uint8_t bit_rate_scale;
+        benz_itu_h26xbs_skip_xn(bitstream, 4);  // uint8_t cpb_size_scale;
+
+        if (sub_pic_hrd_params_present_flag)
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 4);  // uint8_t cpb_size_du_scale;
+        }
+
+        benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t initial_cpb_removal_delay_length_minus1;
+        benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t au_cpb_removal_delay_length_minus1;
+        benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t dpb_output_delay_length_minus1;
+        benz_itu_h26xbs_fill64b(bitstream);
+    }
+
+//    bool fixed_pic_rate_general_flag[MAXSUBLAYERS];
+//    bool fixed_pic_rate_within_cvs_flag[MAXSUBLAYERS];
+//    uint16_t elemental_duration_in_tc_minus1[MAXSUBLAYERS]; //[0, 2047]
+//    bool low_delay_hrd_flag[MAXSUBLAYERS];
+//    uint8_t cpb_cnt_minus1[MAXSUBLAYERS]; //[0, 31]
+//    SubLayerHRDParameters sublayer_hrd_params[MAXSUBLAYERS];
+    for (uint8_t i = 0; i <= max_sub_layers_minus1; i++)
+    {
+        int fixed_pic_rate_general_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        int fixed_pic_rate_within_cvs_flag = 0;
+        if (fixed_pic_rate_general_flag)
+        {
+            fixed_pic_rate_within_cvs_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        }
+
+        int low_delay_hrd_flag = 0;
+        if (fixed_pic_rate_within_cvs_flag)
+        {
+            benz_itu_h26xbs_skip_xe(bitstream);     // elemental_duration_in_tc_minus1[i]; //[0, 2047]
+        }
+        else
+        {
+            low_delay_hrd_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        }
+
+        uint8_t cpb_cnt_minus1 = 0;
+        if (!low_delay_hrd_flag)
+        {
+            cpb_cnt_minus1 = benz_itu_h26xbs_read_ue(bitstream); //[0, 31]
+        }
+
+        if (nal_hrd_parameters_present_flag)
+        {
+//            SubLayerHRDParameters sublayer_hrd_params[i];
+//            sub_layer_hrd_parameters( i )
+            benz_itu_h26xbs_bigfill(bitstream);
+            skip_sub_hrd_parameters(bitstream, cpb_cnt_minus1, sub_pic_hrd_params_present_flag);
+        }
+
+        if (vcl_hrd_parameters_present_flag)
+        {
+//            SubLayerHRDParameters sublayer_hrd_params[i];
+//            sub_layer_hrd_parameters( i )
+            benz_itu_h26xbs_bigfill(bitstream);
+            skip_sub_hrd_parameters(bitstream, cpb_cnt_minus1, sub_pic_hrd_params_present_flag);
+        }
+    }
+
+    benz_itu_h26xbs_fill64b(bitstream);
+}
+
+void skip_vui_parameters(BENZ_ITU_H26XBS* bitstream, uint8_t sps_max_sub_layers_minus1)
+{
+    static uint8_t EXTENDED_SAR = 255;
+
+    int aspect_ratio_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (aspect_ratio_info_present_flag)
+    {
+        uint8_t aspect_ratio_idc = benz_itu_h26xbs_read_un(bitstream, 8);
+        if (aspect_ratio_idc == EXTENDED_SAR)
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 16); // uint16_t sar_width;
+            benz_itu_h26xbs_skip_xn(bitstream, 16); // uint16_t sar_height;
+        }
+    }
+
+    int overscan_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (overscan_info_present_flag)
+    {
+        benz_itu_h26xbs_skip_xn(bitstream, 1);  // int overscan_appropriate_flag;
+    }
+
+    int video_signal_type_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (video_signal_type_present_flag)
+    {
+        benz_itu_h26xbs_skip_xn(bitstream, 3);  // uint8_t video_format;
+        benz_itu_h26xbs_skip_xn(bitstream, 1);  // int video_full_range_flag;
+        int colour_description_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        if (colour_description_present_flag)
+        {
+            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t colour_primaries;
+            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t transfer_characteristics;
+            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t matrix_coeffs;
+        }
+    }
+    benz_itu_h26xbs_bigfill(bitstream);
+
+    int chroma_loc_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (chroma_loc_info_present_flag)
+    {
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t chroma_sample_loc_type_top_field; //[0, 5]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t chroma_sample_loc_type_bottom_field; //[0, 5]
+    }
+
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool neutral_chroma_indication_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool field_seq_flag;
+    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool frame_field_info_present_flag;
+
+    int default_display_window_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (default_display_window_flag)
+    {
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_left_offset;   // assumed to be within [0, 16382]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_right_offset;  // assumed to be within [0, 16382]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_top_offset;    // assumed to be within [0, 16382]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_bottom_offset; // assumed to be within [0, 16382]
+        benz_itu_h26xbs_bigfill(bitstream);
+    }
+
+    int vui_timing_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (vui_timing_info_present_flag)
+    {
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t vui_num_units_in_tick;
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t vui_time_scale;
+        benz_itu_h26xbs_bigfill(bitstream);
+
+        int vui_poc_proportional_to_timing_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        if (vui_poc_proportional_to_timing_flag)
+        {
+            benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t vui_num_ticks_poc_diff_one_minus1; //[0, 0xFFFFFFFE]
+        }
+
+        int vui_hrd_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        if (vui_hrd_parameters_present_flag)
+        {
+//            HRDParameters hrd_params;
+//            hrd_parameters( 1, sps_max_sub_layers_minus1 )
+            benz_itu_h26xbs_bigfill(bitstream);
+            skip_hrd_parameters(bitstream, sps_max_sub_layers_minus1);
+        }
+    }
+
+    int bitstream_restriction_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (bitstream_restriction_flag)
+    {
+        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool tiles_fixed_structure_flag;
+        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool motion_vectors_over_pic_boundaries_flag;
+        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool restricted_ref_pic_lists_flag;
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint16_t min_spatial_segmentation_idc; //[0, 4095]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t max_bytes_per_pic_denom; //[0, 16]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t max_bits_per_min_cu_denom; //[0, 16]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t log2_max_mv_length_horizontal; //[0, 16]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t log2_max_mv_length_vertical; //[0, 15]
+        benz_itu_h26xbs_bigfill(bitstream);
+    }
+
+    benz_itu_h26xbs_fill64b(bitstream);
+}
+
+void skip_header(BENZ_ITU_H26XBS* bitstream)
+{
+    // forbidden_zero_bit
+    benz_itu_h26xbs_skip_xn(bitstream, 1);
+
+    printf("NALU Header -- \n"
+           "  nal_unit_type = %llu\n"
+           "  nuh_layer_id = %llu\n"
+           "  nuh_temporal_id_plus1 = %llu\n",
+           benz_itu_h26xbs_read_un(bitstream, 6),
+           benz_itu_h26xbs_read_un(bitstream, 6),
+           benz_itu_h26xbs_read_un(bitstream, 3));
+    benz_itu_h26xbs_fill64b(bitstream);
+}
+
+uint8_t get_pps_seq_parameter_set_id(const void* nalu, size_t nalubytelen)
+{
+    BENZ_ITU_H26XBS bitstream = {0};
+    benz_itu_h26xbs_init(&bitstream, nalu, nalubytelen);
+    skip_header(&bitstream);
+
+    benz_itu_h26xbs_skip_xe(&bitstream); //[0, 63]
+    return benz_itu_h26xbs_read_ue(&bitstream); //[0, 15]
+}
+
+uint8_t get_sps_seq_parameter_set_id(const void* nalu, size_t nalubytelen)
+{
+    BENZ_ITU_H26XBS bitstream = {0};
+    benz_itu_h26xbs_init(&bitstream, nalu, nalubytelen);
+    skip_header(&bitstream);
+
+    benz_itu_h26xbs_skip_xn(&bitstream, 4); // sps_video_parameter_set_id
+    uint8_t sps_max_sub_layers_minus1 = benz_itu_h26xbs_read_un(&bitstream, 3);
+    benz_itu_h26xbs_skip_xn(&bitstream, 1); // sps_temporal_id_nesting_flag
+
+    benz_itu_h26xbs_fill64b(&bitstream);
+    skip_profile_tier_level(&bitstream, sps_max_sub_layers_minus1); // profile_tier_level( 1, sps_max_sub_layers_minus1 )
+
+    return benz_itu_h26xbs_read_ue(&bitstream); // sps_seq_parameter_set_id [0, 15]
+}
+
+void decode_sps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
+#ifndef MAXSUBLAYERS
+#define MAXSUBLAYERS 7
+#endif
+//    static const uint8_t MAXSUBLAYERS = 7;
+//    static const uint8_t MAXSPSCOUNT = 15;
+
+    CUVIDHEVCPICPARAMS* hevcPP = (CUVIDHEVCPICPARAMS*)&picParams->CodecSpecific;
+
+    uint8_t sps_video_parameter_set_id = benz_itu_h26xbs_read_un(bitstream, 4);
+    uint8_t sps_max_sub_layers_minus1 = benz_itu_h26xbs_read_un(bitstream, 3);
+    int sps_temporal_id_nesting_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+
+//    ProfileTierLevel profile_tier_level;
+//    profile_tier_level( 1, sps_max_sub_layers_minus1 )
+    benz_itu_h26xbs_fill64b(bitstream);
+    skip_profile_tier_level(bitstream, sps_max_sub_layers_minus1);
+
+    uint8_t sps_seq_parameter_set_id = benz_itu_h26xbs_read_ue(bitstream); //[0, 15]
+
+    uint8_t chroma_format_idc = benz_itu_h26xbs_read_ue(bitstream); //[0, 3]
+    int separate_colour_plane_flag = 0;
+    if (chroma_format_idc == 3)
+    {
+        separate_colour_plane_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    }
+
+//    uint8_t chroma_array_type;
+    uint16_t pic_width_in_luma_samples = benz_itu_h26xbs_read_ue(bitstream);    // assumed to be within [0, 16382]
+    uint16_t pic_height_in_luma_samples = benz_itu_h26xbs_read_ue(bitstream);   // assumed to be within [0, 16382]
+    benz_itu_h26xbs_fill64b(bitstream);
+
+    int conformance_window_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (conformance_window_flag)
+    {
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t conf_win_left_offset;   // assumed to be within [0, 16382]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t conf_win_right_offset;  // assumed to be within [0, 16382]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t conf_win_top_offset;    // assumed to be within [0, 16382]
+        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t conf_win_bottom_offset; // assumed to be within [0, 16382]
+        benz_itu_h26xbs_bigfill(bitstream);
+    }
+
+//    // --
+//    int32_t width;
+//    int32_t height;
+//    //cropped frame
+//    uint32_t croppedLeft;
+//    uint32_t croppedTop;
+//    uint32_t croppedWidth;
+//    uint32_t croppedHeight;
+//    // --
+
+    uint8_t bit_depth_luma_minus8 = benz_itu_h26xbs_read_ue(bitstream); //[0, 8]
+    uint8_t bit_depth_chroma_minus8 = benz_itu_h26xbs_read_ue(bitstream); //[0, 8]
+    uint8_t log2_max_pic_order_cnt_lsb_minus4 = benz_itu_h26xbs_read_ue(bitstream); //[0, 12]
+
+    int sps_sub_layer_ordering_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    uint8_t sps_max_dec_pic_buffering_minus1[MAXSUBLAYERS] = {0}; //[0, 15]
+    uint8_t sps_max_num_reorder_pics[MAXSUBLAYERS] = {0}; //[0, 15]
+    uint32_t sps_max_latency_increase_plus1[MAXSUBLAYERS] = {0}; //[0, 0xFFFFFFFE]
+    for(int i = (sps_sub_layer_ordering_info_present_flag ? 0 : sps_max_sub_layers_minus1); i <= sps_max_sub_layers_minus1; i++)
+    {
+        sps_max_dec_pic_buffering_minus1[i] = benz_itu_h26xbs_read_ue(bitstream); //[0, 15]
+        sps_max_num_reorder_pics[i] = benz_itu_h26xbs_read_ue(bitstream); //[0, 15]
+        sps_max_latency_increase_plus1[i] = benz_itu_h26xbs_read_ue(bitstream); //[0, 0xFFFFFFFE]
+        benz_itu_h26xbs_bigfill(bitstream);
+    }
+
+    uint8_t log2_min_luma_coding_block_size_minus3 = benz_itu_h26xbs_read_ue(bitstream); // estimation [1, 3] or [0, 8]
+    uint8_t log2_diff_max_min_luma_coding_block_size = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 2] or [0, 8]
+    uint8_t log2_min_transform_block_size_minus2 = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 8]
+    uint8_t log2_diff_max_min_transform_block_size = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 8]
+    uint8_t max_transform_hierarchy_depth_inter = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 8]
+    uint8_t max_transform_hierarchy_depth_intra = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 8]
+    benz_itu_h26xbs_fill64b(bitstream);
+
+    uint8_t scaling_list_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    int sps_scaling_list_data_present_flag = 0;
+    if (scaling_list_enabled_flag)
+    {
+        sps_scaling_list_data_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+        if (sps_scaling_list_data_present_flag)
+        {
+//            ScalingList scaling_list;
+//            scaling_list_data( )
+            benz_itu_h26xbs_fill64b(bitstream);
+            decode_scaling_list_data(hevcPP, bitstream);
+        }
+    }
+
+    int amp_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    int sample_adaptive_offset_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+
+    int pcm_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    uint8_t pcm_sample_bit_depth_luma_minus1 = 0;
+    uint8_t pcm_sample_bit_depth_chroma_minus1 = 0;
+    uint8_t log2_min_pcm_luma_coding_block_size_minus3 = 0; // estimation [0, 8]
+    uint8_t log2_diff_max_min_pcm_luma_coding_block_size = 0; // estimation [0, 8]
+    int pcm_loop_filter_disabled_flag = 0;
+    if (pcm_enabled_flag)
+    {
+        pcm_sample_bit_depth_luma_minus1 = benz_itu_h26xbs_read_un(bitstream, 4);
+        pcm_sample_bit_depth_chroma_minus1 = benz_itu_h26xbs_read_un(bitstream, 4);
+        log2_min_pcm_luma_coding_block_size_minus3 = benz_itu_h26xbs_read_ue(bitstream); // estimation [0,8]
+        log2_diff_max_min_pcm_luma_coding_block_size = benz_itu_h26xbs_read_ue(bitstream); // estimation [0,8]
+        pcm_loop_filter_disabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    }
+
+    uint8_t num_short_term_ref_pic_sets = benz_itu_h26xbs_read_ue(bitstream); //[0, 64]
+    for(int i = 0; i < num_short_term_ref_pic_sets; i++)
+    {
+//        ShortTermRefPicSet short_term_ref_pic_set[64];
+//        st_ref_pic_set( i )
+    }
+
+    int long_term_ref_pics_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (long_term_ref_pics_present_flag)
+    {
+//        uint8_t num_long_term_ref_pics_sps; //[0,32]
+//        for (i = 0; i < num_long_term_ref_pics_sps; i++)
+//        {
+//            uint16_t lt_ref_pic_poc_lsb_sps[32];
+//            bool used_by_curr_pic_lt_sps_flag[32];
+//        }
+    }
+
+    int temporal_mvp_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    int strong_intra_smoothing_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+
+    int vui_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    if (vui_parameters_present_flag)
+    {
+//        VuiParameters vui_params;
+//        vui_parameters( )
+        benz_itu_h26xbs_fill64b(bitstream);
+        skip_vui_parameters(bitstream, sps_max_sub_layers_minus1);
+    }
+
+    int sps_extension_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+
+    // ... unnecessary extension elements
+
+    hevcPP->pic_width_in_luma_samples = pic_width_in_luma_samples;
+    hevcPP->pic_height_in_luma_samples = pic_height_in_luma_samples;
+    hevcPP->log2_min_luma_coding_block_size_minus3 = log2_min_luma_coding_block_size_minus3;
+    hevcPP->log2_diff_max_min_luma_coding_block_size = log2_diff_max_min_luma_coding_block_size;
+    hevcPP->log2_min_transform_block_size_minus2 = log2_min_transform_block_size_minus2;
+    hevcPP->log2_diff_max_min_transform_block_size = log2_diff_max_min_transform_block_size;
+    hevcPP->pcm_enabled_flag = pcm_enabled_flag;
+    hevcPP->log2_min_pcm_luma_coding_block_size_minus3 = log2_min_pcm_luma_coding_block_size_minus3;
+    hevcPP->log2_diff_max_min_pcm_luma_coding_block_size = log2_diff_max_min_pcm_luma_coding_block_size;
+    hevcPP->pcm_sample_bit_depth_luma_minus1 = pcm_sample_bit_depth_luma_minus1;
+
+    hevcPP->pcm_sample_bit_depth_chroma_minus1 = pcm_sample_bit_depth_chroma_minus1;
+    hevcPP->pcm_loop_filter_disabled_flag = pcm_loop_filter_disabled_flag;
+    hevcPP->strong_intra_smoothing_enabled_flag = strong_intra_smoothing_enabled_flag;
+    hevcPP->max_transform_hierarchy_depth_intra = max_transform_hierarchy_depth_intra;
+    hevcPP->max_transform_hierarchy_depth_inter = max_transform_hierarchy_depth_inter;
+    hevcPP->amp_enabled_flag = amp_enabled_flag;
+    hevcPP->separate_colour_plane_flag = separate_colour_plane_flag;
+    hevcPP->log2_max_pic_order_cnt_lsb_minus4 = log2_max_pic_order_cnt_lsb_minus4;
+
+    hevcPP->num_short_term_ref_pic_sets = num_short_term_ref_pic_sets;
+    hevcPP->long_term_ref_pics_present_flag = long_term_ref_pics_present_flag;
+//    hevcPP->num_long_term_ref_pics_sps = num_long_term_ref_pics_sps;
+    hevcPP->sps_temporal_mvp_enabled_flag = temporal_mvp_enabled_flag;
+    hevcPP->sample_adaptive_offset_enabled_flag = sample_adaptive_offset_enabled_flag;
+    hevcPP->scaling_list_enable_flag = scaling_list_enabled_flag;
+//    hevcPP->IrapPicFlag = 0;
+//    hevcPP->IdrPicFlag = 0;
+
+    hevcPP->bit_depth_luma_minus8 = bit_depth_luma_minus8;
+    hevcPP->bit_depth_chroma_minus8 = bit_depth_chroma_minus8;
+
+    //sps/pps extension fields
+//    hevcPP->log2_max_transform_skip_block_size_minus2;
+//    hevcPP->log2_sao_offset_scale_luma;
+//    hevcPP->log2_sao_offset_scale_chroma;
+//    hevcPP->high_precision_offsets_enabled_flag;
+//    hevcPP->reserved1;
+
+    // sps and pps extension HEVC-main 444
+//    hevcPP->sps_range_extension_flag;
+//    hevcPP->transform_skip_rotation_enabled_flag;
+//    hevcPP->transform_skip_context_enabled_flag;
+//    hevcPP->implicit_rdpcm_enabled_flag;
+
+//    hevcPP->explicit_rdpcm_enabled_flag;
+//    hevcPP->extended_precision_processing_flag;
+//    hevcPP->intra_smoothing_disabled_flag;
+//    hevcPP->persistent_rice_adaptation_enabled_flag;
+
+//    hevcPP->cabac_bypass_alignment_enabled_flag;
+//    hevcPP->pps_range_extension_flag;
+//    hevcPP->cross_component_prediction_enabled_flag;
+//    hevcPP->chroma_qp_offset_list_enabled_flag;
+
+//    hevcPP->diff_cu_chroma_qp_offset_depth;
+//    hevcPP->chroma_qp_offset_list_len_minus1;
+//    hevcPP->cb_qp_offset_list;
+
+//    hevcPP->cr_qp_offset_list;
+//    hevcPP->reserved2;
+
+//    hevcPP->reserved3;
+
+    // 7-10
+    uint32_t minCbLog2SizeY = hevcPP->log2_min_luma_coding_block_size_minus3 + 3;
+    // 7-11
+    uint32_t ctbLog2SizeY = minCbLog2SizeY + hevcPP->log2_diff_max_min_luma_coding_block_size;
+    // 7-13
+    uint32_t ctbSizeY = 1 << ctbLog2SizeY;
+
+    picParams->PicWidthInMbs = hevcPP->pic_width_in_luma_samples / ctbSizeY;
+    picParams->FrameHeightInMbs = hevcPP->pic_width_in_luma_samples / ctbSizeY;
+//    picParams->CurrPicIdx;
+    picParams->field_pic_flag = 0;
+//    picParams->bottom_field_flag;
+//    picParams->second_field;
+    // Bitstream data
+//    picParams->nBitstreamDataLen;
+//    picParams->pBitstreamData;
+    picParams->nNumSlices = 0;
+    picParams->pSliceDataOffsets = 0;
+    picParams->ref_pic_flag = 0;
+    picParams->intra_pic_flag = 1;
+    //picParams->Reserved;
+}
+
 /**
  * @brief Perform the core operation of the feeder thread.
  * 
@@ -1285,6 +1996,72 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 	nvdecodeFeederThrdGetCurrRq(ctx, &rq);
 	pP = rq->picParams;
 	
+	const uint8_t* record = &rq->hvcCData[0];
+
+    uint32_t configurationVersion = (uint32_t)record[0];                                    // 0
+    uint32_t general_profile_space = (uint32_t)(record[1] >> 6);                            // 1 : 11000000
+    uint32_t general_tier_flag = (uint32_t)(record[1] >> 5 & 1);                            // 1 : 00100000
+    uint32_t general_profile_idc = (uint32_t)(record[1] & 31);                              // 1 : 00011111
+    uint32_t general_profile_compatibility_flags = buf_to_uint32(record + 2);               // 2 (2-5)
+    uint64_t general_constraint_indicator_flags = buf_to_uint64(record + 6) >> 16;          // 6 (6-11)
+    uint32_t general_level_idc = (uint32_t)record[12];                                      // 12
+    // uint32_t(4) reserved = ‘1111’b;
+    uint32_t min_spatial_segmentation_idc = (uint32_t)buf_to_uint16(record + 13) << 4 >> 4; // 13 (13-14) : 00001111 11111111 ...
+    // uint32_t(6) reserved = ‘111111’b;
+    uint32_t parallelismType = (uint32_t)(record[15] & 3);                                  // 15 : 00000011
+    // uint32_t(6) reserved = ‘111111’b;
+    uint32_t chromaFormat = (uint32_t)(record[16] & 3);                                     // 16 : 00000011
+    // uint32_t(5) reserved = ‘11111’b;
+    uint32_t bitDepthLumaMinus8 = (uint32_t)(record[17] & 7);                               // 17 : 00000111
+    // uint32_t(5) reserved = ‘11111’b;
+    uint32_t bitDepthChromaMinus8 = (uint32_t)(record[18] & 7);                             // 18 : 00000011
+    uint32_t avgFrameRate = (uint32_t)buf_to_uint16(record + 19);                           // 19 (19-20)
+    uint32_t constantFrameRate = (uint32_t)(record[21] >> 6);                               // 21 : 11000000
+    uint32_t numTemporalLayers = (uint32_t)(record[21] >> 3 & 7);                           // 21 : 00111000
+    uint32_t temporalIdNested = (uint32_t)(record[21] >> 2 & 1);                            // 21 : 00000100
+    uint32_t lengthSizeMinusOne = (uint32_t)(record[21] & 3);                               // 21 : 00000011
+    uint32_t numOfArrays = (uint32_t)record[22];                                            // 22
+
+    // Find PPS, SPSs and get SPS id
+    uint8_t pps_sps_id = 0;
+    const uint8_t* sps_locations[64] = {0};
+    size_t sps_lengths[64] = {0};
+
+    record = &rq->hvcCData[0] + 23;
+    for (int i=0; i < numOfArrays; i++)
+    {
+        uint32_t array_completeness = (uint32_t)(record[0] >> 7);                           // 0 : 10000000
+        // uint32_t(1) reserved = 0;
+        uint32_t NAL_unit_type = (uint32_t)(record[0] & 63);                                // 0 : 00111111
+        uint32_t numNalus = (uint32_t)buf_to_uint16(record + 1);                            // 1 (1-2)
+
+        record += 3;
+        for (int j=0; j < numNalus; j++)
+        {
+            uint32_t nalUnitLength = (uint32_t)buf_to_uint16(record);                       // 0 (0-1)
+            // uint32_t(8*nalUnitLength) nalUnit;
+
+            if(NAL_unit_type == 32){
+                //VPS_NUT
+            }else if(NAL_unit_type == 33){
+                //SPS_NUT
+                uint8_t sps_id = get_sps_seq_parameter_set_id(record + 2, nalUnitLength);
+                sps_locations[sps_id] = record + 2;
+                sps_lengths[sps_id] = nalUnitLength;
+            }else if(NAL_unit_type == 34){
+                //PPS_NUT
+                pps_sps_id = get_pps_seq_parameter_set_id(record + 2, nalUnitLength);
+            }
+            record += 2 + nalUnitLength;
+        }
+    }
+
+    BENZ_ITU_H26XBS bitstream = {0};
+
+    // Decode SPS
+    benz_itu_h26xbs_init(&bitstream, sps_locations[pps_sps_id], sps_lengths[pps_sps_id]);
+    decode_sps(pP, &bitstream);
+
 	/**
 	 * When we generated this dataset, we encoded the byte offset from
 	 * the beginning of the H264 frame in the pointer field. We also
@@ -1313,7 +2090,9 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 	
 	/* Release data. */
 	free(rq->data);
-	rq->data = NULL;
+	free(rq->hvcCData);
+	rq->data     = NULL;
+	rq->hvcCData = NULL;
 	if(ret != CUDA_SUCCESS){
 		ctx->feeder.err = ret;
 		nvdecodeFeederThrdSetStatus(ctx, THRD_EXITING);
