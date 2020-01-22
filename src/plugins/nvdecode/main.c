@@ -17,6 +17,7 @@
 
 #include "benzina/benzina-old.h"
 #include "benzina/plugins/nvdecode.h"
+#include "benzina/iso/bmff-intops.h"
 #include "benzina/itu/h26x.h"
 #include "benzina/itu/h265.h"
 #include "kernels.h"
@@ -280,6 +281,65 @@ BENZINA_PLUGIN_STATIC int         nvdecodeAllocDataOpen           (NVDECODE_CTX*
 BENZINA_PLUGIN_STATIC int         nvdecodeAllocThreading          (NVDECODE_CTX* ctx);
 BENZINA_PLUGIN_STATIC int         nvdecodeAllocCleanup            (NVDECODE_CTX* ctx, int ret);
 
+
+// Table 7-5
+BENZINA_PLUGIN_STATIC const uint8_t DEFAULT_SCALING_LIST_16[16] = {
+    16, 16, 16, 16,
+    16, 16, 16, 16,
+    16, 16, 16, 16,
+    16, 16, 16, 16
+};
+
+// Table 7-6
+BENZINA_PLUGIN_STATIC const uint8_t DEFAULT_SCALING_LIST_64[2][64] = {
+    {16, 16, 16, 16, 16, 16, 16, 16,
+     16, 16, 17, 16, 17, 16, 17, 18,
+     17, 18, 18, 17, 18, 21, 19, 20,
+     21, 20, 19, 21, 24, 22, 22, 24,
+     24, 22, 22, 24, 25, 25, 27, 30,
+     27, 25, 25, 29, 31, 35, 35, 31,
+     29, 36, 41, 44, 41, 36, 47, 54,
+     54, 47, 65, 70, 65, 88, 88, 115},
+
+    {16, 16, 16, 16, 16, 16, 16, 16,
+     16, 16, 17, 17, 17, 17, 17, 18,
+     18, 18, 18, 18, 18, 20, 20, 20,
+     20, 20, 20, 20, 24, 24, 24, 24,
+     24, 24, 24, 24, 25, 25, 25, 25,
+     25, 25, 25, 28, 28, 28, 28, 28,
+     28, 33, 33, 33, 33, 33, 41, 41,
+     41, 41, 54, 54, 54, 71, 71, 91}
+};
+
+BENZINA_PLUGIN_STATIC const uint8_t* DEFAULT_SCALING_LIST_4x4[6] = {
+    DEFAULT_SCALING_LIST_16,
+    DEFAULT_SCALING_LIST_16,
+    DEFAULT_SCALING_LIST_16,
+    DEFAULT_SCALING_LIST_16,
+    DEFAULT_SCALING_LIST_16,
+    DEFAULT_SCALING_LIST_16
+};
+
+BENZINA_PLUGIN_STATIC const uint8_t* DEFAULT_SCALING_LIST_8x8[6] = {
+    DEFAULT_SCALING_LIST_64[0],
+    DEFAULT_SCALING_LIST_64[0],
+    DEFAULT_SCALING_LIST_64[0],
+    DEFAULT_SCALING_LIST_64[1],
+    DEFAULT_SCALING_LIST_64[1],
+    DEFAULT_SCALING_LIST_64[1]
+};
+
+BENZINA_PLUGIN_STATIC const uint8_t** DEFAULT_SCALING_LIST_16x16 = DEFAULT_SCALING_LIST_8x8;
+
+// According to spec "7.3.4 Scaling list data syntax",
+// we just use scalingList32x32[0] and scalingList32x32[3];
+// as spec "7.4.5 Scaling list data semantics",
+// matrixId as the index of scalingList32x32 can be equal to 0 or 3;
+// so only need to define scalingList32x32[2][] and have the index == matrixId / 3
+BENZINA_PLUGIN_STATIC const uint8_t* DEFAULT_SCALING_LIST_32x32[2] = {
+    DEFAULT_SCALING_LIST_64[0],
+    DEFAULT_SCALING_LIST_64[1]
+};
 
 
 /* Static Function Definitions */
@@ -935,8 +995,10 @@ BENZINA_PLUGIN_STATIC int         nvdecodeReaderThrdCore          (NVDECODE_CTX*
 	/* Otherwise, report success. */
 	rq->data                         = rd0.ptr;
 	rq->hvcCData                     = rd1.ptr;
-	rq->picParams->nBitstreamDataLen = rd0.len;
 	ctx->reader.cnt++;
+    // Bitstream data
+    rq->picParams->pBitstreamData    = rd0.ptr;
+	rq->picParams->nBitstreamDataLen = rd0.len;
 	pthread_cond_broadcast(&ctx->feeder.cond);
 	return 0;
 }
@@ -1203,162 +1265,84 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdWait          (NVDECODE_CTX*
 	return 1;
 }
 
-uint16_t buf_to_uint16(const uint8_t* buffer){
-    uint16_t result = 0;
-    for (int i = 0; i < 4; ++i)
-    {
-        result |= ((uint16_t)buffer[i]) << (8 - 8 * i);
-    }
-    return result;
-}
-
-uint32_t buf_to_uint32(const uint8_t* buffer){
-    uint32_t result = 0;
-    for (int i = 0; i < 4; ++i)
-    {
-        result |= ((uint32_t)buffer[i]) << (24 - 8 * i);
-    }
-    return result;
-}
-
-uint64_t buf_to_uint64(const uint8_t* buffer){
-    uint64_t result = 0;
-    for (int i = 0; i < 8; ++i)
-    {
-        result |= ((uint64_t)buffer[i]) << (56 - 8 * i);
-    }
-    return result;
-}
-
 void skip_profile_tier_level(BENZ_ITU_H26XBS* bitstream, uint8_t max_sub_layers_minus1)
 {
-    benz_itu_h26xbs_skip_xn(bitstream, 2);  // uint8_t general_profile_space;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_tier_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t general_profile_idc;
-    benz_itu_h26xbs_skip_xn(bitstream, 32); // bool    general_profile_compatibility_flag[32];
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_progressive_source_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_interlaced_source_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_non_packed_constraint_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool    general_frame_only_constraint_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 43); // bool general_max_12bit_constraint_flag;
-                                            // bool general_max_10bit_constraint_flag;
-                                            // bool general_max_8bit_constraint_flag;
-                                            // bool general_max_422chroma_constraint_flag;
-                                            // bool general_max_420chroma_constraint_flag;
-                                            // bool general_max_monochrome_constraint_flag;
-                                            // bool general_intra_constraint_flag;
-                                            // bool general_one_picture_only_constraint_flag;
-                                            // bool general_lower_bit_rate_constraint_flag;
-                                            // //uint64_t general_reserved_zero_34bits;
-                                            // //uint64_t general_reserved_zero_43bits;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool general_inbld_flag;
-                                            // //bool general_reserved_zero_bit;
-    benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t general_level_idc;
-    benz_itu_h26xbs_bigfill(bitstream);
-    // total bits skipped: 96
-    int sub_layer_profile_present_flag[6] = {0};
-    int sub_layer_level_present_flag[6] = {0};
-    for (int i = 0; i < max_sub_layers_minus1; i++)
+    /* Skips profile_tier_level() efficiently. */
+    // As spec '7.3.3 Profile, tier and level syntax'
+    // general_profile_space;                    2 bits
+    // general_tier_flag;                        1 bit
+    // general_profile_idc;                      5 bits
+    // general_profile_compatibility_flag[32];   32 bits
+    // general_progressive_source_flag;          1 bit
+    // general_interlaced_source_flag;           1 bit
+    // general_non_packed_constraint_flag;       1 bit
+    // general_frame_only_constraint_flag;       1 bit
+    // general_max_12bit_constraint_flag;        43 bits
+    // general_max_10bit_constraint_flag;
+    // general_max_8bit_constraint_flag;
+    // general_max_422chroma_constraint_flag;
+    // general_max_420chroma_constraint_flag;
+    // general_max_monochrome_constraint_flag;
+    // general_intra_constraint_flag;
+    // general_one_picture_only_constraint_flag;
+    // general_lower_bit_rate_constraint_flag;
+    // general_reserved_zero_34bits;
+    // general_reserved_zero_43bits;
+    // general_inbld_flag;                       1 bit
+    // general_reserved_zero_bit;
+    // general_level_idc;                        8 bits
+    // total                                     96 bits
+    benz_itu_h26xbs_bigskip(bitstream, 96);
+    if (max_sub_layers_minus1)
     {
-        sub_layer_profile_present_flag[i] = benz_itu_h26xbs_read_un(bitstream, 1);
-        sub_layer_level_present_flag[i] = benz_itu_h26xbs_read_un(bitstream, 1);
-    }
-    if (max_sub_layers_minus1 > 0)
-    {
-        for (int i = max_sub_layers_minus1; i < 8; i++)
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 2);  //uint8_t reserved_zero_2bits[6];
-        }
-    }
-    benz_itu_h26xbs_fill64b(bitstream);
-    for (int i = 0; i < max_sub_layers_minus1; i++)
-    {
-        if (sub_layer_profile_present_flag[i])
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 2);  // uint8_t sub_layer_profile_space[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_tier_flag[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t sub_layer_profile_idc[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 32); // bool sub_layer_profile_compatibility_flag[6][32];
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_progressive_source_flag[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_interlaced_source_flag[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_non_packed_constraint_flag[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_frame_only_constraint_flag[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 43); // bool sub_layer_max_12bit_constraint_flag[6];
-                                                    // bool sub_layer_max_10bit_constraint_flag[6];
-                                                    // bool sub_layer_max_8bit_constraint_flag[6];
-                                                    // bool sub_layer_max_422chroma_constraint_flag[6];
-                                                    // bool sub_layer_max_420chroma_constraint_flag[6];
-                                                    // bool sub_layer_max_monochrome_constraint_flag[6];
-                                                    // bool sub_layer_intra_constraint_flag[6];
-                                                    // bool sub_layer_one_picture_only_constraint_flag[6];
-                                                    // bool sub_layer_lower_bit_rate_constraint_flag[6];
-                                                    // //uint64_t sub_layer_reserved_zero_34bits[6];
-                                                    // //uint64_t sub_layer_reserved_zero_43bits[6];
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_layer_inbld_flag[6];
-                                                    // //bool sub_layer_reserved_zero_bit[6];
-            benz_itu_h26xbs_bigfill(bitstream);
-            // total bits skipped: 88
-        }
-        if (sub_layer_level_present_flag[i])
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t sub_layer_level_idc[6];
-            // total bits skipped: 8
-        }
-    }
+        uint16_t sub_layer_x_present_flags = benz_itu_h26xbs_read_un(bitstream, 16);
+        uint32_t sub_layer_profile_present_count = benz_popcnt64(sub_layer_x_present_flags & 0xAAA8);   // pop count odd bits
+        uint32_t sub_layer_level_present_count = benz_popcnt64(sub_layer_x_present_flags & 0x5554);     // pop count even bits
 
-    benz_itu_h26xbs_fill64b(bitstream);
+        // As spec '7.3.3 Profile, tier and level syntax'
+        // general_profile_space;                    2 bits
+        // general_tier_flag;                        1 bit
+        // general_profile_idc;                      5 bits
+        // general_profile_compatibility_flag[32];   32 bits
+        // general_progressive_source_flag;          1 bit
+        // general_interlaced_source_flag;           1 bit
+        // general_non_packed_constraint_flag;       1 bit
+        // general_frame_only_constraint_flag;       1 bit
+        // general_max_12bit_constraint_flag;        43 bits
+        // general_max_10bit_constraint_flag;
+        // general_max_8bit_constraint_flag;
+        // general_max_422chroma_constraint_flag;
+        // general_max_420chroma_constraint_flag;
+        // general_max_monochrome_constraint_flag;
+        // general_intra_constraint_flag;
+        // general_one_picture_only_constraint_flag;
+        // general_lower_bit_rate_constraint_flag;
+        // general_reserved_zero_34bits;
+        // general_reserved_zero_43bits;
+        // general_inbld_flag;                       1 bit
+        // general_reserved_zero_bit;
+        // total                                     88 bits
+
+        // general_level_idc;                        8 bits
+        // total                                     8 bits
+        benz_itu_h26xbs_bigskip(bitstream, 88 * sub_layer_profile_present_count +
+                                            8 * sub_layer_level_present_count);
+    }
 }
 
-void set_default_scaling_list(uint8_t* dstList, uint8_t* dstDcList, uint8_t sizeId, uint8_t matrixId)
+void set_default_scaling_list(uint8_t* dstList, uint8_t* dstDcList, uint8_t sizeId, uint8_t matrixIdx)
 {
-    // Table 7-5
-    static const uint8_t DefaultScalingList0[16] = {
-        16, 16, 16, 16,
-        16, 16, 16, 16,
-        16, 16, 16, 16,
-        16, 16, 16, 16
-    };
-
-    // Table 7-6
-    static const uint8_t DefaultScalingList1[64] = {
-        16, 16, 16, 16, 16, 16, 16, 16,
-        16, 16, 17, 16, 17, 16, 17, 18,
-        17, 18, 18, 17, 18, 21, 19, 20,
-        21, 20, 19, 21, 24, 22, 22, 24,
-        24, 22, 22, 24, 25, 25, 27, 30,
-        27, 25, 25, 29, 31, 35, 35, 31,
-        29, 36, 41, 44, 41, 36, 47, 54,
-        54, 47, 65, 70, 65, 88, 88, 115
-    };
-
-    static const uint8_t DefaultScalingList2[64] = {
-        16, 16, 16, 16, 16, 16, 16, 16,
-        16, 16, 17, 17, 17, 17, 17, 18,
-        18, 18, 18, 18, 18, 20, 20, 20,
-        20, 20, 20, 20, 24, 24, 24, 24,
-        24, 24, 24, 24, 25, 25, 25, 25,
-        25, 25, 25, 28, 28, 28, 28, 28,
-        28, 33, 33, 33, 33, 33, 41, 41,
-        41, 41, 54, 54, 54, 71, 71, 91
-    };
-
     // Table 7-3-Specification of siezId
     switch (sizeId) {
     case 0: // 4x4
-        memcpy(dstList, DefaultScalingList0, 16);
+        memcpy(dstList, DEFAULT_SCALING_LIST_4x4[matrixIdx], 16);
         break;
     case 1: // 8x8
     case 2: // 16x16
-        if (matrixId <= 2)
-            memcpy(dstList, DefaultScalingList1, 64);
-        else
-            memcpy(dstList, DefaultScalingList2, 64);
+        memcpy(dstList, DEFAULT_SCALING_LIST_8x8[matrixIdx], 64);
         break;
     case 3: // 32x32
-        if (!matrixId)
-            memcpy(dstList, DefaultScalingList1, 64);
-        else
-            memcpy(dstList, DefaultScalingList2, 64);
+        memcpy(dstList, DEFAULT_SCALING_LIST_32x32[matrixIdx], 64);
         break;
 //    default:
 //        ERROR("Can't get the scaling list by sizeId(%d)", sizeId);
@@ -1366,26 +1350,28 @@ void set_default_scaling_list(uint8_t* dstList, uint8_t* dstDcList, uint8_t size
     }
 
     if (sizeId > 1)
-        dstDcList[matrixId] = 16;
+    {
+        dstDcList[matrixIdx] = 16;
+    }
 
 //    return true;
 }
 
 void decode_scaling_list_data(CUVIDHEVCPICPARAMS* hevcPP, BENZ_ITU_H26XBS* bitstream)
 {
-#ifndef benz__min
-#define benz__min(a,b) \
+#ifndef MIN
+#define MIN(a,b) \
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
-#endif // benz__min
+#endif // MIN
 
     uint8_t* dstDcList = NULL;
     uint8_t* dstList = NULL;
     uint8_t* refList = NULL;
 
     size_t size = 64;
-    uint8_t refMatrixId = 0;
+    uint8_t refMatrixIdx = 0;
     int scaling_list_pred_mode_flag = 0;
     uint8_t scaling_list_pred_matrix_id_delta = 0;
     uint8_t nextCoef;
@@ -1394,70 +1380,62 @@ void decode_scaling_list_data(CUVIDHEVCPICPARAMS* hevcPP, BENZ_ITU_H26XBS* bitst
 
     for (uint32_t sizeId = 0; sizeId < 4; sizeId++)
     {
-        for (uint32_t matrixId = 0; matrixId < 6; matrixId += (sizeId == 3) ? 3 : 1)
+        // as spec "7.3.4 Scaling list data syntax" and Table 7-4,
+        // Since CUVIDHEVCPICPARAMS.ScalingList32x32[2], if sizeId == 3, we make matrixIdx range
+        // within [0, 1] instead of [0, 5], thus making matrixId = matrixIdx * 3
+        uint32_t maxMatrixIdx = (sizeId == 3) ? 2 : 6;
+        for (uint32_t matrixIdx = 0; matrixIdx < maxMatrixIdx; matrixIdx++)
         {
             size = 64;
             // Table 7-3
             switch (sizeId)
             {
             case 0: // 4x4
-                dstList = hevcPP->ScalingList4x4[matrixId];
+                dstList = hevcPP->ScalingList4x4[matrixIdx];
                 size = 16;
                 break;
             case 1: // 8x8
-                dstList = hevcPP->ScalingList8x8[matrixId];
+                dstList = hevcPP->ScalingList8x8[matrixIdx];
                 break;
             case 2: // 16x16
-                dstList = hevcPP->ScalingList16x16[matrixId];
+                dstList = hevcPP->ScalingList16x16[matrixIdx];
                 dstDcList = hevcPP->ScalingListDCCoeff16x16;
                 break;
             case 3: // 32x32
-                dstList = hevcPP->ScalingList32x32[matrixId];
+                dstList = hevcPP->ScalingList32x32[matrixIdx];
                 dstDcList = hevcPP->ScalingListDCCoeff32x32;
             }
 
             scaling_list_pred_mode_flag = benz_itu_h26xbs_read_un(bitstream, 1);
             if (!scaling_list_pred_mode_flag)
             {
-                if (sizeId < 3)
-                {
-                    scaling_list_pred_matrix_id_delta = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 6]
-                }
-                else if (3 == sizeId)
-                {
-                    // as spec "7.4.5 Scaling list data semantics",
-                    // matrixId should be equal to 3 when scaling_list_pred_matrix_id_delta
-                    // is greater than 0.
-                    scaling_list_pred_matrix_id_delta = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 2]
-                }
-//                else
-//                {
-//                    ERROR("sizeId(%u) should be in the range of[0, 3].", sizeId);
-//                    return false;
-//                }
+                // "7.4.5 Scaling list data semantics"
+                scaling_list_pred_matrix_id_delta = benz_itu_h26xbs_read_ue(bitstream); // estimation [0, 5] or [0, 1] if sizeId == 3
 
                 if (!scaling_list_pred_matrix_id_delta)
                 {
-                    set_default_scaling_list(dstList, dstDcList, sizeId, matrixId);
+                    set_default_scaling_list(dstList, dstDcList, sizeId, matrixIdx);
                 }
                 else
                 {
-                    //7-40
-                    refMatrixId = matrixId - scaling_list_pred_matrix_id_delta * (sizeId == 3 ? 3 : 1);
+                    //7-42
+                    // Since CUVIDHEVCPICPARAMS.ScalingList32x32[2], if sizeId == 3, we make refMatrixIdx range
+                    // within [0, 1] instead of [0, 5], thus making refMatrixId = refMatrixIdx * 3
+                    refMatrixIdx = matrixIdx - scaling_list_pred_matrix_id_delta;
                     // get referrence list
                     switch (sizeId)
                     {
                     case 0: // 4x4
-                        refList = hevcPP->ScalingList4x4[refMatrixId];
+                        refList = hevcPP->ScalingList4x4[refMatrixIdx];
                         break;
                     case 1: // 8x8
-                        refList = hevcPP->ScalingList8x8[refMatrixId];
+                        refList = hevcPP->ScalingList8x8[refMatrixIdx];
                         break;
                     case 2: // 16x16
-                        refList = hevcPP->ScalingList16x16[refMatrixId];
+                        refList = hevcPP->ScalingList16x16[refMatrixIdx];
                         break;
                     case 3: // 32x32
-                        refList = hevcPP->ScalingList32x32[refMatrixId];
+                        refList = hevcPP->ScalingList32x32[refMatrixIdx];
                     }
 
                     for (uint32_t i = 0; i < size; i++)
@@ -1467,21 +1445,21 @@ void decode_scaling_list_data(CUVIDHEVCPICPARAMS* hevcPP, BENZ_ITU_H26XBS* bitst
 
                     if (sizeId > 1)
                     {
-                        dstDcList[matrixId] = dstDcList[refMatrixId];
+                        dstDcList[matrixIdx] = dstDcList[refMatrixIdx];
                     }
                 }
             }
             else
             {
                 nextCoef = 8;
-                coefNum = benz__min(64, (1 << (4 + (sizeId << 1))));
+                coefNum = MIN(64, (1 << (4 + (sizeId << 1))));
 
                 if (sizeId > 1)
                 {
                     int32_t scaling_list_dc_coef_minus8;
                     scaling_list_dc_coef_minus8 = benz_itu_h26xbs_read_se(bitstream); // [-7, 247]
-                    dstDcList[matrixId] = scaling_list_dc_coef_minus8 + 8;
-                    nextCoef = dstDcList[matrixId];
+                    dstDcList[matrixIdx] = scaling_list_dc_coef_minus8 + 8;
+                    nextCoef = dstDcList[matrixIdx];
                 }
 
                 for (uint32_t i = 0; i < coefNum; i++)
@@ -1498,275 +1476,24 @@ void decode_scaling_list_data(CUVIDHEVCPICPARAMS* hevcPP, BENZ_ITU_H26XBS* bitst
 
     benz_itu_h26xbs_fill64b(bitstream);
 
-#ifndef benz__min
-#undef benz__min
-#endif // benz__min
-}
-
-void skip_sub_hrd_parameters(BENZ_ITU_H26XBS* bitstream, uint8_t cpb_cnt_minus1, int sub_pic_hrd_params_present_flag)
-{
-//    uint32_t bit_rate_value_minus1[32];
-//    uint32_t cpb_size_value_minus1[32];
-//    uint32_t cpb_size_du_value_minus1[32];
-//    uint32_t bit_rate_du_value_minus1[32];
-//    bool cbr_flag[32];
-    for (uint8_t i = 0; i <= cpb_cnt_minus1; i++)
-    {
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t bit_rate_value_minus1[32]; //[0, 0xFFFFFFFE]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t cpb_size_value_minus1[32]; //[0, 0xFFFFFFFE]
-        benz_itu_h26xbs_bigfill(bitstream);
-        if (sub_pic_hrd_params_present_flag)
-        {
-            benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t cpb_size_du_value_minus1[32]; //[0, 0xFFFFFFFE]
-            benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t bit_rate_du_value_minus1[32]; //[0, 0xFFFFFFFE]
-            benz_itu_h26xbs_bigfill(bitstream);
-        }
-        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool cbr_flag[32];
-    }
-
-    benz_itu_h26xbs_fill64b(bitstream);
-}
-
-void skip_hrd_parameters(BENZ_ITU_H26XBS* bitstream, uint8_t max_sub_layers_minus1)
-{
-//    static const uint8_t MAXSUBLAYERS = 7;
-
-    int nal_hrd_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    int vcl_hrd_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    int sub_pic_hrd_params_present_flag = 0;
-    if (nal_hrd_parameters_present_flag || vcl_hrd_parameters_present_flag)
-    {
-        sub_pic_hrd_params_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        if (sub_pic_hrd_params_present_flag)
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t tick_divisor_minus2;
-            benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t du_cpb_removal_delay_increment_length_minus1;
-            benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool sub_pic_cpb_params_in_pic_timing_sei_flag;
-            benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t dpb_output_delay_du_length_minus1;
-        }
-
-        benz_itu_h26xbs_skip_xn(bitstream, 4);  // uint8_t bit_rate_scale;
-        benz_itu_h26xbs_skip_xn(bitstream, 4);  // uint8_t cpb_size_scale;
-
-        if (sub_pic_hrd_params_present_flag)
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 4);  // uint8_t cpb_size_du_scale;
-        }
-
-        benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t initial_cpb_removal_delay_length_minus1;
-        benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t au_cpb_removal_delay_length_minus1;
-        benz_itu_h26xbs_skip_xn(bitstream, 5);  // uint8_t dpb_output_delay_length_minus1;
-        benz_itu_h26xbs_fill64b(bitstream);
-    }
-
-//    bool fixed_pic_rate_general_flag[MAXSUBLAYERS];
-//    bool fixed_pic_rate_within_cvs_flag[MAXSUBLAYERS];
-//    uint16_t elemental_duration_in_tc_minus1[MAXSUBLAYERS]; //[0, 2047]
-//    bool low_delay_hrd_flag[MAXSUBLAYERS];
-//    uint8_t cpb_cnt_minus1[MAXSUBLAYERS]; //[0, 31]
-//    SubLayerHRDParameters sublayer_hrd_params[MAXSUBLAYERS];
-    for (uint8_t i = 0; i <= max_sub_layers_minus1; i++)
-    {
-        int fixed_pic_rate_general_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        int fixed_pic_rate_within_cvs_flag = 0;
-        if (fixed_pic_rate_general_flag)
-        {
-            fixed_pic_rate_within_cvs_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        }
-
-        int low_delay_hrd_flag = 0;
-        if (fixed_pic_rate_within_cvs_flag)
-        {
-            benz_itu_h26xbs_skip_xe(bitstream);     // elemental_duration_in_tc_minus1[i]; //[0, 2047]
-        }
-        else
-        {
-            low_delay_hrd_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        }
-
-        uint8_t cpb_cnt_minus1 = 0;
-        if (!low_delay_hrd_flag)
-        {
-            cpb_cnt_minus1 = benz_itu_h26xbs_read_ue(bitstream); //[0, 31]
-        }
-
-        if (nal_hrd_parameters_present_flag)
-        {
-//            SubLayerHRDParameters sublayer_hrd_params[i];
-//            sub_layer_hrd_parameters( i )
-            benz_itu_h26xbs_bigfill(bitstream);
-            skip_sub_hrd_parameters(bitstream, cpb_cnt_minus1, sub_pic_hrd_params_present_flag);
-        }
-
-        if (vcl_hrd_parameters_present_flag)
-        {
-//            SubLayerHRDParameters sublayer_hrd_params[i];
-//            sub_layer_hrd_parameters( i )
-            benz_itu_h26xbs_bigfill(bitstream);
-            skip_sub_hrd_parameters(bitstream, cpb_cnt_minus1, sub_pic_hrd_params_present_flag);
-        }
-    }
-
-    benz_itu_h26xbs_fill64b(bitstream);
-}
-
-void skip_vui_parameters(BENZ_ITU_H26XBS* bitstream, uint8_t sps_max_sub_layers_minus1)
-{
-    static uint8_t EXTENDED_SAR = 255;
-
-    int aspect_ratio_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (aspect_ratio_info_present_flag)
-    {
-        uint8_t aspect_ratio_idc = benz_itu_h26xbs_read_un(bitstream, 8);
-        if (aspect_ratio_idc == EXTENDED_SAR)
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 16); // uint16_t sar_width;
-            benz_itu_h26xbs_skip_xn(bitstream, 16); // uint16_t sar_height;
-        }
-    }
-
-    int overscan_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (overscan_info_present_flag)
-    {
-        benz_itu_h26xbs_skip_xn(bitstream, 1);  // int overscan_appropriate_flag;
-    }
-
-    int video_signal_type_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (video_signal_type_present_flag)
-    {
-        benz_itu_h26xbs_skip_xn(bitstream, 3);  // uint8_t video_format;
-        benz_itu_h26xbs_skip_xn(bitstream, 1);  // int video_full_range_flag;
-        int colour_description_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        if (colour_description_present_flag)
-        {
-            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t colour_primaries;
-            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t transfer_characteristics;
-            benz_itu_h26xbs_skip_xn(bitstream, 8);  // uint8_t matrix_coeffs;
-        }
-    }
-    benz_itu_h26xbs_bigfill(bitstream);
-
-    int chroma_loc_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (chroma_loc_info_present_flag)
-    {
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t chroma_sample_loc_type_top_field; //[0, 5]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t chroma_sample_loc_type_bottom_field; //[0, 5]
-    }
-
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool neutral_chroma_indication_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool field_seq_flag;
-    benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool frame_field_info_present_flag;
-
-    int default_display_window_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (default_display_window_flag)
-    {
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_left_offset;   // assumed to be within [0, 16382]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_right_offset;  // assumed to be within [0, 16382]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_top_offset;    // assumed to be within [0, 16382]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t def_disp_win_bottom_offset; // assumed to be within [0, 16382]
-        benz_itu_h26xbs_bigfill(bitstream);
-    }
-
-    int vui_timing_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (vui_timing_info_present_flag)
-    {
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t vui_num_units_in_tick;
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t vui_time_scale;
-        benz_itu_h26xbs_bigfill(bitstream);
-
-        int vui_poc_proportional_to_timing_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        if (vui_poc_proportional_to_timing_flag)
-        {
-            benz_itu_h26xbs_skip_xe(bitstream);     // uint32_t vui_num_ticks_poc_diff_one_minus1; //[0, 0xFFFFFFFE]
-        }
-
-        int vui_hrd_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-        if (vui_hrd_parameters_present_flag)
-        {
-//            HRDParameters hrd_params;
-//            hrd_parameters( 1, sps_max_sub_layers_minus1 )
-            benz_itu_h26xbs_bigfill(bitstream);
-            skip_hrd_parameters(bitstream, sps_max_sub_layers_minus1);
-        }
-    }
-
-    int bitstream_restriction_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (bitstream_restriction_flag)
-    {
-        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool tiles_fixed_structure_flag;
-        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool motion_vectors_over_pic_boundaries_flag;
-        benz_itu_h26xbs_skip_xn(bitstream, 1);  // bool restricted_ref_pic_lists_flag;
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint16_t min_spatial_segmentation_idc; //[0, 4095]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t max_bytes_per_pic_denom; //[0, 16]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t max_bits_per_min_cu_denom; //[0, 16]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t log2_max_mv_length_horizontal; //[0, 16]
-        benz_itu_h26xbs_skip_xe(bitstream);     // uint8_t log2_max_mv_length_vertical; //[0, 15]
-        benz_itu_h26xbs_bigfill(bitstream);
-    }
-
-    benz_itu_h26xbs_fill64b(bitstream);
-}
-
-void skip_header(BENZ_ITU_H26XBS* bitstream)
-{
-    // forbidden_zero_bit
-    benz_itu_h26xbs_skip_xn(bitstream, 1);
-
-    printf("NALU Header -- \n"
-           "  nal_unit_type = %llu\n"
-           "  nuh_layer_id = %llu\n"
-           "  nuh_temporal_id_plus1 = %llu\n",
-           benz_itu_h26xbs_read_un(bitstream, 6),
-           benz_itu_h26xbs_read_un(bitstream, 6),
-           benz_itu_h26xbs_read_un(bitstream, 3));
-    benz_itu_h26xbs_fill64b(bitstream);
-}
-
-uint8_t get_pps_seq_parameter_set_id(const void* nalu, size_t nalubytelen)
-{
-    BENZ_ITU_H26XBS bitstream = {0};
-    benz_itu_h26xbs_init(&bitstream, nalu, nalubytelen);
-    skip_header(&bitstream);
-
-    benz_itu_h26xbs_skip_xe(&bitstream); //[0, 63]
-    return benz_itu_h26xbs_read_ue(&bitstream); //[0, 15]
-}
-
-uint8_t get_sps_seq_parameter_set_id(const void* nalu, size_t nalubytelen)
-{
-    BENZ_ITU_H26XBS bitstream = {0};
-    benz_itu_h26xbs_init(&bitstream, nalu, nalubytelen);
-    skip_header(&bitstream);
-
-    benz_itu_h26xbs_skip_xn(&bitstream, 4); // sps_video_parameter_set_id
-    uint8_t sps_max_sub_layers_minus1 = benz_itu_h26xbs_read_un(&bitstream, 3);
-    benz_itu_h26xbs_skip_xn(&bitstream, 1); // sps_temporal_id_nesting_flag
-
-    benz_itu_h26xbs_fill64b(&bitstream);
-    skip_profile_tier_level(&bitstream, sps_max_sub_layers_minus1); // profile_tier_level( 1, sps_max_sub_layers_minus1 )
-
-    return benz_itu_h26xbs_read_ue(&bitstream); // sps_seq_parameter_set_id [0, 15]
+#ifdef MIN
+#undef MIN
+#endif // MIN
 }
 
 void decode_sps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
-#ifndef MAXSUBLAYERS
-#define MAXSUBLAYERS 7
-#endif
-//    static const uint8_t MAXSUBLAYERS = 7;
-//    static const uint8_t MAXSPSCOUNT = 15;
-
     CUVIDHEVCPICPARAMS* hevcPP = (CUVIDHEVCPICPARAMS*)&picParams->CodecSpecific;
 
-    uint8_t sps_video_parameter_set_id = benz_itu_h26xbs_read_un(bitstream, 4);
-    uint8_t sps_max_sub_layers_minus1 = benz_itu_h26xbs_read_un(bitstream, 3);
-    int sps_temporal_id_nesting_flag = benz_itu_h26xbs_read_un(bitstream, 1);
+    benz_itu_h26xbs_skip_xn(bitstream, 4); // sps_video_parameter_set_id [0, 15]
+    uint8_t sps_max_sub_layers_minus1 = benz_itu_h26xbs_read_un(bitstream, 3); // [0, 6]
+    benz_itu_h26xbs_skip_xn(bitstream, 1); // sps_temporal_id_nesting_flag
 
 //    ProfileTierLevel profile_tier_level;
 //    profile_tier_level( 1, sps_max_sub_layers_minus1 )
     benz_itu_h26xbs_fill64b(bitstream);
     skip_profile_tier_level(bitstream, sps_max_sub_layers_minus1);
 
-    uint8_t sps_seq_parameter_set_id = benz_itu_h26xbs_read_ue(bitstream); //[0, 15]
+    benz_itu_h26xbs_skip_xe(bitstream); // sps_seq_parameter_set_id [0, 15]
 
     uint8_t chroma_format_idc = benz_itu_h26xbs_read_ue(bitstream); //[0, 3]
     int separate_colour_plane_flag = 0;
@@ -1790,29 +1517,16 @@ void decode_sps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
         benz_itu_h26xbs_bigfill(bitstream);
     }
 
-//    // --
-//    int32_t width;
-//    int32_t height;
-//    //cropped frame
-//    uint32_t croppedLeft;
-//    uint32_t croppedTop;
-//    uint32_t croppedWidth;
-//    uint32_t croppedHeight;
-//    // --
-
     uint8_t bit_depth_luma_minus8 = benz_itu_h26xbs_read_ue(bitstream); //[0, 8]
     uint8_t bit_depth_chroma_minus8 = benz_itu_h26xbs_read_ue(bitstream); //[0, 8]
     uint8_t log2_max_pic_order_cnt_lsb_minus4 = benz_itu_h26xbs_read_ue(bitstream); //[0, 12]
 
     int sps_sub_layer_ordering_info_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    uint8_t sps_max_dec_pic_buffering_minus1[MAXSUBLAYERS] = {0}; //[0, 15]
-    uint8_t sps_max_num_reorder_pics[MAXSUBLAYERS] = {0}; //[0, 15]
-    uint32_t sps_max_latency_increase_plus1[MAXSUBLAYERS] = {0}; //[0, 0xFFFFFFFE]
     for(int i = (sps_sub_layer_ordering_info_present_flag ? 0 : sps_max_sub_layers_minus1); i <= sps_max_sub_layers_minus1; i++)
     {
-        sps_max_dec_pic_buffering_minus1[i] = benz_itu_h26xbs_read_ue(bitstream); //[0, 15]
-        sps_max_num_reorder_pics[i] = benz_itu_h26xbs_read_ue(bitstream); //[0, 15]
-        sps_max_latency_increase_plus1[i] = benz_itu_h26xbs_read_ue(bitstream); //[0, 0xFFFFFFFE]
+        benz_itu_h26xbs_skip_xe(bitstream); // sps_max_dec_pic_buffering_minus1[i] [0, 15]
+        benz_itu_h26xbs_skip_xe(bitstream); // sps_max_num_reorder_pics[i] [0, 15]
+        benz_itu_h26xbs_skip_xe(bitstream); // sps_max_latency_increase_plus1[i] [0, 0xFFFFFFFE]
         benz_itu_h26xbs_bigfill(bitstream);
     }
 
@@ -1857,38 +1571,29 @@ void decode_sps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
     }
 
     uint8_t num_short_term_ref_pic_sets = benz_itu_h26xbs_read_ue(bitstream); //[0, 64]
-    for(int i = 0; i < num_short_term_ref_pic_sets; i++)
-    {
+    // num_short_term_ref_pic_sets will always == 0 in our cases
+//    for(int i = 0; i < num_short_term_ref_pic_sets; i++)
+//    {
 //        ShortTermRefPicSet short_term_ref_pic_set[64];
 //        st_ref_pic_set( i )
-    }
+//    }
 
     int long_term_ref_pics_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (long_term_ref_pics_present_flag)
-    {
+    // long_term_ref_pics_present_flag will always == 0 in our cases
+//    if (long_term_ref_pics_present_flag)
+//    {
 //        uint8_t num_long_term_ref_pics_sps; //[0,32]
 //        for (i = 0; i < num_long_term_ref_pics_sps; i++)
 //        {
 //            uint16_t lt_ref_pic_poc_lsb_sps[32];
 //            bool used_by_curr_pic_lt_sps_flag[32];
 //        }
-    }
+//    }
 
     int temporal_mvp_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
     int strong_intra_smoothing_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
 
-    int vui_parameters_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    if (vui_parameters_present_flag)
-    {
-//        VuiParameters vui_params;
-//        vui_parameters( )
-        benz_itu_h26xbs_fill64b(bitstream);
-        skip_vui_parameters(bitstream, sps_max_sub_layers_minus1);
-    }
-
-    int sps_extension_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-
-    // ... unnecessary extension elements
+    // ... unnecessary vui_parameters and extension elements
 
     hevcPP->pic_width_in_luma_samples = pic_width_in_luma_samples;
     hevcPP->pic_height_in_luma_samples = pic_height_in_luma_samples;
@@ -1912,47 +1617,13 @@ void decode_sps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
 
     hevcPP->num_short_term_ref_pic_sets = num_short_term_ref_pic_sets;
     hevcPP->long_term_ref_pics_present_flag = long_term_ref_pics_present_flag;
-//    hevcPP->num_long_term_ref_pics_sps = num_long_term_ref_pics_sps;
+    hevcPP->num_long_term_ref_pics_sps = 0;
     hevcPP->sps_temporal_mvp_enabled_flag = temporal_mvp_enabled_flag;
     hevcPP->sample_adaptive_offset_enabled_flag = sample_adaptive_offset_enabled_flag;
     hevcPP->scaling_list_enable_flag = scaling_list_enabled_flag;
-//    hevcPP->IrapPicFlag = 0;
-//    hevcPP->IdrPicFlag = 0;
 
     hevcPP->bit_depth_luma_minus8 = bit_depth_luma_minus8;
     hevcPP->bit_depth_chroma_minus8 = bit_depth_chroma_minus8;
-
-    //sps/pps extension fields
-//    hevcPP->log2_max_transform_skip_block_size_minus2;
-//    hevcPP->log2_sao_offset_scale_luma;
-//    hevcPP->log2_sao_offset_scale_chroma;
-//    hevcPP->high_precision_offsets_enabled_flag;
-//    hevcPP->reserved1;
-
-    // sps and pps extension HEVC-main 444
-//    hevcPP->sps_range_extension_flag;
-//    hevcPP->transform_skip_rotation_enabled_flag;
-//    hevcPP->transform_skip_context_enabled_flag;
-//    hevcPP->implicit_rdpcm_enabled_flag;
-
-//    hevcPP->explicit_rdpcm_enabled_flag;
-//    hevcPP->extended_precision_processing_flag;
-//    hevcPP->intra_smoothing_disabled_flag;
-//    hevcPP->persistent_rice_adaptation_enabled_flag;
-
-//    hevcPP->cabac_bypass_alignment_enabled_flag;
-//    hevcPP->pps_range_extension_flag;
-//    hevcPP->cross_component_prediction_enabled_flag;
-//    hevcPP->chroma_qp_offset_list_enabled_flag;
-
-//    hevcPP->diff_cu_chroma_qp_offset_depth;
-//    hevcPP->chroma_qp_offset_list_len_minus1;
-//    hevcPP->cb_qp_offset_list;
-
-//    hevcPP->cr_qp_offset_list;
-//    hevcPP->reserved2;
-
-//    hevcPP->reserved3;
 
     // 7-10
     uint32_t minCbLog2SizeY = hevcPP->log2_min_luma_coding_block_size_minus3 + 3;
@@ -1963,18 +1634,6 @@ void decode_sps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
 
     picParams->PicWidthInMbs = hevcPP->pic_width_in_luma_samples / ctbSizeY;
     picParams->FrameHeightInMbs = hevcPP->pic_width_in_luma_samples / ctbSizeY;
-//    picParams->CurrPicIdx;
-    picParams->field_pic_flag = 0;
-//    picParams->bottom_field_flag;
-//    picParams->second_field;
-    // Bitstream data
-//    picParams->nBitstreamDataLen;
-//    picParams->pBitstreamData;
-    picParams->nNumSlices = 0;
-    picParams->pSliceDataOffsets = 0;
-    picParams->ref_pic_flag = 0;
-    picParams->intra_pic_flag = 1;
-    //picParams->Reserved;
 }
 
 void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
@@ -2036,11 +1695,11 @@ void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
         {
             uint8_t numCol = num_tile_columns_minus1 + 1;
             uint8_t numRow = num_tile_rows_minus1 + 1;
-            for(int i = 0; i < numCol; i++)
+            for (int i = 0; i < numCol; i++)
             {
                 hevcPP->column_width_minus1[i] = (i + 1) * picWidthInCtbsY / numCol - i * picWidthInCtbsY / numCol - 1;
             }
-            for(int i = 0; i < numRow; i++)
+            for (int i = 0; i < numRow; i++)
             {
                 hevcPP->row_height_minus1[i] = (i + 1) * picHeightInCtbsY / numRow - i * picHeightInCtbsY / numRow - 1;
             }
@@ -2058,6 +1717,7 @@ void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
 //                benz_itu_h26xbs_fill64b(bitstream);
 //            }
 //        }
+
         loop_filter_across_tiles_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
     }
 
@@ -2102,25 +1762,30 @@ void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
 //        uint8_t* dstDcList = NULL;
 //        for (uint32_t sizeId = 0; sizeId < 4; sizeId++)
 //        {
-//            for (uint32_t matrixId = 0; matrixId < 6; matrixId += (sizeId == 3) ? 3 : 1)
+//            // as spec "7.3.4 Scaling list data syntax" and Table 7-4,
+//            // Since CUVIDHEVCPICPARAMS.ScalingList32x32[2], if sizeId == 3, we make matrixIdx range
+//            // within [0, 1] instead of [0, 5], thus making matrixId = matrixIdx * 3
+//            uint32_t maxMatrixIdx = (sizeId == 3) ? 2 : 6;
+//            for (uint32_t matrixIdx = 0; matrixIdx < maxMatrixIdx; matrixIdx++)
 //            {
+//                // Table 7-3
 //                switch (sizeId)
 //                {
 //                case 0: // 4x4
-//                    dstList = pps->scaling_list.scalingList4x4[matrixId];
+//                    dstList = hevcPP->ScalingList4x4[matrixIdx];
 //                    break;
 //                case 1: // 8x8
-//                    dstList = pps->scaling_list.scalingList8x8[matrixId];
+//                    dstList = hevcPP->ScalingList8x8[matrixIdx];
 //                    break;
 //                case 2: // 16x16
-//                    dstList = pps->scaling_list.scalingList16x16[matrixId];
-//                    dstDcList = pps->scaling_list.scalingListDC16x16;
+//                    dstList = hevcPP->ScalingList16x16[matrixIdx];
+//                    dstDcList = hevcPP->ScalingListDCCoeff16x16;
 //                    break;
 //                case 3: // 32x32
-//                    dstList = pps->scaling_list.scalingList32x32[matrixId];
-//                    dstDcList = pps->scaling_list.scalingListDC32x32;
+//                    dstList = hevcPP->ScalingList32x32[matrixIdx];
+//                    dstDcList = hevcPP->ScalingListDCCoeff32x32;
 //                }
-//                set_default_scaling_list(dstList, dstDcList, sizeId, matrixId);
+//                set_default_scaling_list(dstList, dstDcList, sizeId, matrixIdx);
 //            }
 //        }
 //    }
@@ -2130,48 +1795,6 @@ void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
     int slice_segment_header_extension_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
 
     // ... unnecessary extension elements
-
-    int pps_extension_present_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-    int pps_range_extension_flag = 0;
-//    if (pps_extension_present_flag)
-//    {
-//        pps_range_extension_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-//        pps_multilayer_extension_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-//        pps_3d_extension_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-////        pps_extension_5bits;
-//        pps_scc_extension_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-//        pps_extension_4bits = benz_itu_h26xbs_read_un(bitstream, 4);
-//    }
-
-//    if (pps_range_extension_flag)
-//    {
-//        //PPSRangeExtension pps_range_extension;
-//        //7.3.2.3.2 Picture parameter set range extension syntax
-//        if (transform_skip_enabled_flag)
-//        {
-//            log2_max_transform_skip_block_size_minus2 = benz_itu_h26xbs_read_ue(bitstream);
-//        }
-
-//        cross_component_prediction_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-
-//        chroma_qp_offset_list_enabled_flag = benz_itu_h26xbs_read_un(bitstream, 1);
-//        if (chroma_qp_offset_list_enabled_flag)
-//        {
-//            diff_cu_chroma_qp_offset_depth = benz_itu_h26xbs_read_ue(bitstream);  // estimation [0,2] or [0,8]
-//            chroma_qp_offset_list_len_minus1 = benz_itu_h26xbs_read_ue(bitstream); //[0, 5]
-//            for (int i = 0; i <= chroma_qp_offset_list_len_minus1; i++)
-//            {
-//                cb_qp_offset_list[i] = benz_itu_h26xbs_read_se(bitstream); //[-12, 12]
-//                cr_qp_offset_list[i] = benz_itu_h26xbs_read_se(bitstream); //[-12, 12]
-//            }
-//        }
-//        uint8_t log2_sao_offset_scale_luma = benz_itu_h26xbs_read_ue(bitstream); //[0, 6]
-//        uint8_t log2_sao_offset_scale_chroma = benz_itu_h26xbs_read_ue(bitstream); //[0, 6]
-//    }
-
-//    //used for parsing other syntax elements
-//    uint32_t picWidthInCtbsY;
-//    uint32_t picHeightInCtbsY;
 
     hevcPP->dependent_slice_segments_enabled_flag = dependent_slice_segments_enabled_flag;
     hevcPP->slice_segment_header_extension_present_flag = slice_segment_header_extension_present_flag;
@@ -2208,38 +1831,6 @@ void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
     hevcPP->uniform_spacing_flag = uniform_spacing_flag;
     hevcPP->num_tile_columns_minus1 = num_tile_columns_minus1;
     hevcPP->num_tile_rows_minus1 = num_tile_rows_minus1;
-
-    //sps/pps extension fields
-//    hevcPP->log2_max_transform_skip_block_size_minus2;
-//    hevcPP->log2_sao_offset_scale_luma;
-//    hevcPP->log2_sao_offset_scale_chroma;
-//    hevcPP->high_precision_offsets_enabled_flag;
-//    hevcPP->reserved1;
-
-    // sps and pps extension HEVC-main 444
-//    hevcPP->sps_range_extension_flag;
-//    hevcPP->transform_skip_rotation_enabled_flag;
-//    hevcPP->transform_skip_context_enabled_flag;
-//    hevcPP->implicit_rdpcm_enabled_flag;
-
-//    hevcPP->explicit_rdpcm_enabled_flag;
-//    hevcPP->extended_precision_processing_flag;
-//    hevcPP->intra_smoothing_disabled_flag;
-//    hevcPP->persistent_rice_adaptation_enabled_flag;
-
-//    hevcPP->cabac_bypass_alignment_enabled_flag;
-//    hevcPP->pps_range_extension_flag;
-//    hevcPP->cross_component_prediction_enabled_flag;
-//    hevcPP->chroma_qp_offset_list_enabled_flag;
-
-//    hevcPP->diff_cu_chroma_qp_offset_depth;
-//    hevcPP->chroma_qp_offset_list_len_minus1;
-//    hevcPP->cb_qp_offset_list;
-
-//    hevcPP->cr_qp_offset_list;
-//    hevcPP->reserved2;
-
-//    hevcPP->reserved3;
 }
 
 /**
@@ -2252,6 +1843,9 @@ void decode_pps(CUVIDPICPARAMS* picParams, BENZ_ITU_H26XBS* bitstream){
  */
 
 BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX* ctx){
+#ifndef MAXSPSCOUNT
+#define MAXSPSCOUNT 64
+#endif // MAXSPSCOUNT
 	NVDECODE_RQ*    rq;
 	CUVIDPICPARAMS* pP;
 	CUresult        ret;
@@ -2260,68 +1854,73 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 	
 	nvdecodeFeederThrdGetCurrRq(ctx, &rq);
 	pP = rq->picParams;
+    CUVIDHEVCPICPARAMS* hevcPP = (CUVIDHEVCPICPARAMS*)&pP->CodecSpecific;
 	
 	const uint8_t* record = &rq->hvcCData[0];
 
-    uint32_t configurationVersion = (uint32_t)record[0];                                    // 0
-    uint32_t general_profile_space = (uint32_t)(record[1] >> 6);                            // 1 : 11000000
-    uint32_t general_tier_flag = (uint32_t)(record[1] >> 5 & 1);                            // 1 : 00100000
-    uint32_t general_profile_idc = (uint32_t)(record[1] & 31);                              // 1 : 00011111
-    uint32_t general_profile_compatibility_flags = buf_to_uint32(record + 2);               // 2 (2-5)
-    uint64_t general_constraint_indicator_flags = buf_to_uint64(record + 6) >> 16;          // 6 (6-11)
-    uint32_t general_level_idc = (uint32_t)record[12];                                      // 12
-    // uint32_t(4) reserved = ‘1111’b;
-    uint32_t min_spatial_segmentation_idc = (uint32_t)buf_to_uint16(record + 13) << 4 >> 4; // 13 (13-14) : 00001111 11111111 ...
-    // uint32_t(6) reserved = ‘111111’b;
-    uint32_t parallelismType = (uint32_t)(record[15] & 3);                                  // 15 : 00000011
-    // uint32_t(6) reserved = ‘111111’b;
-    uint32_t chromaFormat = (uint32_t)(record[16] & 3);                                     // 16 : 00000011
-    // uint32_t(5) reserved = ‘11111’b;
-    uint32_t bitDepthLumaMinus8 = (uint32_t)(record[17] & 7);                               // 17 : 00000111
-    // uint32_t(5) reserved = ‘11111’b;
-    uint32_t bitDepthChromaMinus8 = (uint32_t)(record[18] & 7);                             // 18 : 00000011
-    uint32_t avgFrameRate = (uint32_t)buf_to_uint16(record + 19);                           // 19 (19-20)
-    uint32_t constantFrameRate = (uint32_t)(record[21] >> 6);                               // 21 : 11000000
-    uint32_t numTemporalLayers = (uint32_t)(record[21] >> 3 & 7);                           // 21 : 00111000
-    uint32_t temporalIdNested = (uint32_t)(record[21] >> 2 & 1);                            // 21 : 00000100
-    uint32_t lengthSizeMinusOne = (uint32_t)(record[21] & 3);                               // 21 : 00000011
-    uint32_t numOfArrays = (uint32_t)record[22];                                            // 22
+    uint32_t configurationVersion = (uint32_t)record[0];                                           // 0
+    uint32_t general_profile_space = (uint32_t)(record[1] >> 6);                                   // 1 : 11000000
+    uint32_t general_tier_flag = (uint32_t)(record[1] >> 5 & 1);                                   // 1 : 00100000
+    uint32_t general_profile_idc = (uint32_t)(record[1] & 31);                                     // 1 : 00011111
+    uint32_t general_profile_compatibility_flags = benz_iso_bmff_as_u32(record + 2);               // 2 (2-5)
+    uint64_t general_constraint_indicator_flags = benz_iso_bmff_as_u64(record + 6) >> 16;          // 6 (6-11)
+    uint32_t general_level_idc = (uint32_t)record[12];                                             // 12
+    // bits(4) reserved = ‘1111’b;
+    uint32_t min_spatial_segmentation_idc = (uint32_t)benz_iso_bmff_as_u16(record + 13) << 4 >> 4; // 13 (13-14) : 00001111 11111111 ...
+    // bits(6) reserved = ‘111111’b;
+    uint32_t parallelismType = (uint32_t)(record[15] & 3);                                         // 15 : 00000011
+    // bits(6) reserved = ‘111111’b;
+    uint32_t chromaFormat = (uint32_t)(record[16] & 3);                                            // 16 : 00000011
+    // bits(5) reserved = ‘11111’b;
+    uint32_t bitDepthLumaMinus8 = (uint32_t)(record[17] & 7);                                      // 17 : 00000111
+    // bits(5) reserved = ‘11111’b;
+    uint32_t bitDepthChromaMinus8 = (uint32_t)(record[18] & 7);                                    // 18 : 00000011
+    uint32_t avgFrameRate = (uint32_t)benz_iso_bmff_as_u16(record + 19);                           // 19 (19-20)
+    uint32_t constantFrameRate = (uint32_t)(record[21] >> 6);                                      // 21 : 11000000
+    uint32_t numTemporalLayers = (uint32_t)(record[21] >> 3 & 7);                                  // 21 : 00111000
+    uint32_t temporalIdNested = (uint32_t)(record[21] >> 2 & 1);                                   // 21 : 00000100
+    uint32_t lengthSizeMinusOne = (uint32_t)(record[21] & 3);                                      // 21 : 00000011
+    uint32_t numOfArrays = (uint32_t)record[22];                                                   // 22
+    record = &rq->hvcCData[0] + 23;
 
     // Find PPS, SPSs and get SPS id
     uint8_t pps_sps_id = 0;
     const uint8_t* pps_location = 0;
     size_t pps_length = 0;
-    const uint8_t* sps_locations[64] = {0};
-    size_t sps_lengths[64] = {0};
+    const uint8_t* sps_locations[MAXSPSCOUNT] = {0};
+    size_t sps_lengths[MAXSPSCOUNT] = {0};
 
-    record = &rq->hvcCData[0] + 23;
     for (int i=0; i < numOfArrays; i++)
     {
-        uint32_t array_completeness = (uint32_t)(record[0] >> 7);                           // 0 : 10000000
-        // uint32_t(1) reserved = 0;
-        uint32_t NAL_unit_type = (uint32_t)(record[0] & 63);                                // 0 : 00111111
-        uint32_t numNalus = (uint32_t)buf_to_uint16(record + 1);                            // 1 (1-2)
-
+        // In our case, array_completeness will always == 1
+//        uint32_t array_completeness = (uint32_t)(record[0] >> 7);                                  // 0 : 10000000
+        // bits(1) reserved = 0;
+        uint32_t NAL_unit_type = (uint32_t)(record[0] & 63);                                       // 0 : 00111111
+        uint32_t numNalus = (uint32_t)benz_iso_bmff_as_u16(record + 1);                            // 1 (1-2)
         record += 3;
+
+        uint8_t sps_id = 0;
         for (int j=0; j < numNalus; j++)
         {
-            uint32_t nalUnitLength = (uint32_t)buf_to_uint16(record);                       // 0 (0-1)
-            // uint32_t(8*nalUnitLength) nalUnit;
+            uint32_t nalUnitLength = (uint32_t)benz_iso_bmff_as_u16(record);                       // 0 (0-1)
+            record += 2;
 
-            if(NAL_unit_type == 32){
-                //VPS_NUT
-            }else if(NAL_unit_type == 33){
-                //SPS_NUT
-                uint8_t sps_id = get_sps_seq_parameter_set_id(record + 2, nalUnitLength);
+            // bits(8*nalUnitLength) nalUnit;
+            switch(NAL_unit_type){
+            case 32: break; //VPS_NUT
+            case 33: //SPS_NUT
+                //Skip the 2 header bytes
+                sps_id = benz_itu_h265_nalu_sps_get_sps_id(record + 2);
                 sps_locations[sps_id] = record + 2;
-                sps_lengths[sps_id] = nalUnitLength;
-            }else if(NAL_unit_type == 34){
-                //PPS_NUT
-                pps_sps_id = get_pps_seq_parameter_set_id(record + 2, nalUnitLength);
+                sps_lengths[sps_id] = nalUnitLength - 2;
+                break;
+            case 34: //PPS_NUT
+                //Skip the 2 header bytes
+                pps_sps_id = benz_itu_h265_nalu_pps_get_sps_id(record + 2);
                 pps_location = record + 2;
-                pps_length = nalUnitLength;
+                pps_length = nalUnitLength - 2;
             }
-            record += 2 + nalUnitLength;
+            record += nalUnitLength;
         }
     }
 
@@ -2348,9 +1947,21 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 	 * range [0, MAX_DECODE_SURFACES).
 	 */
 	
-	pP->pBitstreamData    = rq->data;
-	pP->pSliceDataOffsets = &ZERO;
+    uint32_t nalUnitLengthSize = lengthSizeMinusOne + 1;
+
+    hevcPP->IrapPicFlag = 1;
+    hevcPP->IdrPicFlag = 1;
+
 	pP->CurrPicIdx        = ctx->feeder.cnt % ctx->decoderInfo.ulNumDecodeSurfaces;
+    pP->field_pic_flag    = 0;
+    pP->bottom_field_flag = 0;
+    pP->second_field      = 0;
+    // Bitstream data
+    pP->nNumSlices        = 1;
+	pP->pSliceDataOffsets = &nalUnitLengthSize;
+	
+    pP->ref_pic_flag      = 0;
+    pP->intra_pic_flag    = 1;
 	
 	/**
 	 * Drop mutex and possibly block attempting to decode image, then
@@ -2376,6 +1987,9 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 	ctx->feeder.cnt++;
 	pthread_cond_broadcast(&ctx->worker.cond);
 	return 0;
+#ifdef MAXSPSCOUNT
+#undef MAXSPSCOUNT
+#endif // MAXSPSCOUNT
 }
 
 /**
@@ -3390,6 +3004,7 @@ BENZINA_PLUGIN_HIDDEN int         nvdecodeSetBuffer               (NVDECODE_CTX*
 			ctx->picParams      = calloc(ctx->totalSlots,     sizeof(*ctx->picParams));
 			ctx->request        = calloc(ctx->totalSlots,     sizeof(*ctx->request));
 			ctx->batch          = calloc(ctx->multibuffering, sizeof(*ctx->batch));
+            memset(ctx->picParams, 0, ctx->totalSlots * sizeof(CUVIDPICPARAMS));
 			if(ctx->picParams && ctx->request && ctx->batch){
 				ret = BENZINA_DATALOADER_ITER_SUCCESS;
 			}else{
