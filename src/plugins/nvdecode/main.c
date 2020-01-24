@@ -1846,10 +1846,11 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 #ifndef MAXSPSCOUNT
 #define MAXSPSCOUNT 64
 #endif // MAXSPSCOUNT
+	static uint32_t ONE = 1;
+
 	NVDECODE_RQ*    rq;
 	CUVIDPICPARAMS* pP;
 	CUresult        ret;
-	unsigned int    ZERO = 0;
 	
 	
 	nvdecodeFeederThrdGetCurrRq(ctx, &rq);
@@ -1866,7 +1867,7 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
     uint64_t general_constraint_indicator_flags = benz_iso_bmff_as_u64(record + 6) >> 16;          // 6 (6-11)
     uint32_t general_level_idc = (uint32_t)record[12];                                             // 12
     // bits(4) reserved = ‘1111’b;
-    uint32_t min_spatial_segmentation_idc = (uint32_t)benz_iso_bmff_as_u16(record + 13) << 4 >> 4; // 13 (13-14) : 00001111 11111111 ...
+    uint32_t min_spatial_segmentation_idc = (uint32_t)benz_iso_bmff_as_u16(record + 13) & 0x0FFF;  // 13 (13-14) : 00001111 11111111 ...
     // bits(6) reserved = ‘111111’b;
     uint32_t parallelismType = (uint32_t)(record[15] & 3);                                         // 15 : 00000011
     // bits(6) reserved = ‘111111’b;
@@ -1947,10 +1948,10 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
 	 * range [0, MAX_DECODE_SURFACES).
 	 */
 	
-    uint32_t nalUnitLengthSize = lengthSizeMinusOne + 1;
+    benz_putbe32(rq->data, 0x00000001); // 0x00 + annexb begin flag
 
-    hevcPP->IrapPicFlag = 1;
-    hevcPP->IdrPicFlag = 1;
+    hevcPP->IrapPicFlag   = 1;
+    hevcPP->IdrPicFlag    = 1;
 
 	pP->CurrPicIdx        = ctx->feeder.cnt % ctx->decoderInfo.ulNumDecodeSurfaces;
     pP->field_pic_flag    = 0;
@@ -1958,7 +1959,7 @@ BENZINA_PLUGIN_STATIC int         nvdecodeFeederThrdCore          (NVDECODE_CTX*
     pP->second_field      = 0;
     // Bitstream data
     pP->nNumSlices        = 1;
-	pP->pSliceDataOffsets = &nalUnitLengthSize;
+	pP->pSliceDataOffsets = &ONE;   // offset to annexb begin flag
 	
     pP->ref_pic_flag      = 0;
     pP->intra_pic_flag    = 1;
