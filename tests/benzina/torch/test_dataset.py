@@ -3,7 +3,7 @@ from benzina.utils.file import File, Track
 
 
 def test_dataset():
-    dataset_path = "annex/mini_concat_indexed.bzna";
+    dataset_path = "annex/mini_concat_indexed.bzna"
 
     with Track(dataset_path, "bzna_input") as track:
         dataset = Dataset(track)
@@ -62,5 +62,5 @@ def test_imagenet():
                 assert sample_input_track.video_configuration_location() == (623989, 2188)
                 assert sample_input_track[0] == sample_input_track.sample_location(0)
 
-            assert target == 1
-            assert item.target == 1
+            assert target == (1,)
+            assert item.target == (1,)

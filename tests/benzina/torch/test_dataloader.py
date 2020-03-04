@@ -3,7 +3,7 @@ from benzina.utils.file import File, Track
 
 
 def test_imagenet():
-    dataset_path = "annex/mini_concat_indexed.bzna";
+    dataset_path = "annex/mini_concat_indexed.bzna"
 
     with File(dataset_path) as file:
         with Track(file, "bzna_input") as input_track, \
@@ -21,6 +21,3 @@ def test_imagenet():
                 for i, (image, target) in enumerate(zip(images, targets)):
                     assert image.size() == (3, 224, 224)
                     assert image.sum().item() > 0
-
-if __name__ == "__main__":
-    test_imagenet()

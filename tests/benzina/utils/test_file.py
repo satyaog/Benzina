@@ -1,12 +1,12 @@
 from bitstring import ConstBitStream
 
-from pybzparse import Parser, headers
+from pybenzinaparse import Parser, headers
 
 from benzina.utils.file import File, Track
 
 
 def test_file():
-    dataset_path = "annex/mini_concat_indexed.bzna";
+    dataset_path = "annex/mini_concat_indexed.bzna"
 
     with File(dataset_path) as file:
         input_trak = file.trak("bzna_input")
