@@ -7,6 +7,7 @@
 #include "./native_nvdecodedataloaderitercore.h"
 #include "./native_nvdecodedataloaderitercorebatchcm.h"
 
+#include <stdio.h>
 
 
 /* Python API Function Definitions */
@@ -238,6 +239,7 @@ static void      NvdecodeDataLoaderIterCore_finalize                (NvdecodeDat
 static PyObject* NvdecodeDataLoaderIterCore_new                     (PyTypeObject* type,
                                                                      PyObject*     args,
                                                                      PyObject*     kwargs){
+	printf("NvdecodeDataLoaderIterCore_new\n");
 	(void)args;
 	(void)kwargs;
 	
@@ -279,6 +281,7 @@ static PyObject* NvdecodeDataLoaderIterCore_new                     (PyTypeObjec
 static int       NvdecodeDataLoaderIterCore_init                    (NvdecodeDataLoaderIterCore* self,
                                                                      PyObject*                   args,
                                                                      PyObject*                   kwargs){
+    printf("NvdecodeDataLoaderIterCore_init\n");
 	void*              ctx            = NULL;
 	DatasetCore*       datasetCore    = NULL;
 	const char*        deviceId       = NULL;
