@@ -8,7 +8,7 @@ from benzina.utils.file import File, Track
 
 
 def test_file():
-    dataset_path = os.environ["TEST_DS_PATH"]
+    dataset_path = os.environ["DATASET_PATH"]
 
     with File(dataset_path) as file:
         input_trak = file.trak("bzna_input")
@@ -122,7 +122,7 @@ def test_file():
 
 
 def test_track():
-    dataset_path = os.environ["TEST_DS_PATH"]
+    dataset_path = os.environ["DATASET_PATH"]
 
     with Track(dataset_path, "bzna_input") as track:
         assert track.label == "bzna_input"
