@@ -1,11 +1,9 @@
-import os
-
 from benzina.torch.dataset import Dataset, ImageNet
 from benzina.utils.file import File, Track
 
 
 def test_dataset():
-    dataset_path = os.environ["DATASET_PATH"]
+    dataset_path = "annex/mini_concat_indexed.bzna";
 
     with Track(dataset_path, "bzna_input") as track:
         dataset = Dataset(track)
@@ -38,7 +36,7 @@ def test_dataset():
 
 
 def test_imagenet():
-    dataset_path = os.environ["DATASET_PATH"]
+    dataset_path = "annex/mini_concat_indexed.bzna";
 
     with File(dataset_path) as file:
         with Track(file, "bzna_input") as input_track, \
