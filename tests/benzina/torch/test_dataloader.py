@@ -1,5 +1,5 @@
 import benzina.torch as bz
-from benzina.utils.file import File, Track
+from benzina.utils import File, Track
 
 
 def test_imagenet():
