@@ -24,24 +24,24 @@ def test_track():
         with File(dataset_path) as file:
             _ = Track(file, "bzna_input")
             assert track.label == _.label
-            assert track.shape() == _.shape()
+            assert track.shape == _.shape
             assert track.sample_location(0) == _.sample_location(0)
 
         with Track(dataset_path, "bzna_input\0") as _:
             assert track.label + '\0' == _.label
-            assert track.shape() == _.shape()
+            assert track.shape == _.shape
             assert track.sample_location(0) == _.sample_location(0)
         with Track(dataset_path, b"bzna_input") as _:
             assert track.label == _.label.decode("utf-8")
-            assert track.shape() == _.shape()
+            assert track.shape == _.shape
             assert track.sample_location(0) == _.sample_location(0)
         with Track(dataset_path, b"bzna_input\0") as _:
             assert track.label + '\0' == _.label.decode("utf-8")
-            assert track.shape() == _.shape()
+            assert track.shape == _.shape
             assert track.sample_location(0) == _.sample_location(0)
 
         assert len(track) == 10
-        assert track.shape() == (0, 0)
+        assert track.shape == (0, 0)
         assert track.sample_location(0) == (40, 85271)
         assert track.sample_location(1) == (85311, 147045)
         assert track.sample_location(2) == (232356, 397562)
@@ -64,7 +64,7 @@ def test_track():
 
         with Track(track.sample_as_file(2), "bzna_input") as sub_input_track:
             assert len(sub_input_track) == 1
-            assert sub_input_track.shape() == (600, 535)
+            assert sub_input_track.shape == (600, 535)
             assert sub_input_track[0].location == (232384, 215750)
 
             assert sub_input_track.video_configuration_location() == (623989, 2188)
@@ -122,7 +122,7 @@ def test_track():
             sub_input_track = Track(sub_file, "bzna_input")
 
             assert len(sub_input_track) == 1
-            assert sub_input_track.shape() == (600, 535)
+            assert sub_input_track.shape == (600, 535)
             assert sub_input_track[0].location == (232384, 215750)
 
             assert sub_input_track.video_configuration_location() == (623989, 2188)
@@ -132,7 +132,7 @@ def test_track():
             sub_target_track = Track(sub_file, "bzna_target")
 
             assert len(sub_target_track) == 1
-            assert sub_target_track.shape() == (0, 0)
+            assert sub_target_track.shape == (0, 0)
             assert sub_target_track[0].location == (623481, 8)
 
             assert sub_target_track.sample_bytes(0) == b"\x01\x00\x00\x00\x00\x00\x00\x00"
@@ -141,7 +141,7 @@ def test_track():
             sub_thumb_track = Track(sub_file, "bzna_thumb")
 
             assert len(sub_thumb_track) == 1
-            assert sub_thumb_track.shape() == (512, 456)
+            assert sub_thumb_track.shape == (512, 456)
             assert sub_thumb_track[0].location == (448134, 175347)
 
             assert sub_thumb_track.video_configuration_location() == (627537, 2223)
