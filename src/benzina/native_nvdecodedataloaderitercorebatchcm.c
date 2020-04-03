@@ -66,6 +66,7 @@ static int       NvdecodeDataLoaderIterCoreBatchCM_clear            (NvdecodeDat
 static int       NvdecodeDataLoaderIterCoreBatchCM_init             (NvdecodeDataLoaderIterCoreBatchCM* self,
                                                                      PyObject*                          args,
                                                                      PyObject*                          kwargs){
+    printf("NvdecodeDataLoaderIterCoreBatchCM_init\n");
 	NvdecodeDataLoaderIterCore* core  = NULL;
 	PyObject*                   token = NULL;
 	
@@ -167,6 +168,7 @@ static PyObject* NvdecodeDataLoaderIterCoreBatchCM_setToken         (NvdecodeDat
 static PyObject* NvdecodeDataLoaderIterCoreBatchCM_sample           (NvdecodeDataLoaderIterCoreBatchCM* self,
                                                                      PyObject*                          args,
                                                                      PyObject*                          kwargs){
+    printf("NvdecodeDataLoaderIterCoreBatchCM_sample\n");
 	PyObject* ret                      = NULL;
 	unsigned long long index           = 0;
 	unsigned long long dstPtr          = 0;

@@ -78,3 +78,13 @@ install
 src/benzina/version.py
 src/benzina/lib
 src/benzina/include
+
+.idea/
+.DS_Store
+Benzina.cflags
+Benzina.config
+Benzina.creator
+Benzina.creator.user
+Benzina.cxxflags
+Benzina.files
+Benzina.includes

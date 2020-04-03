@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "./native_datasetcore.h"
 
+#include <stdio.h>
 
 
 /* Python API Function Definitions */
@@ -44,6 +45,7 @@ static PyObject* DatasetCore_new      (PyTypeObject* type,
 static int       DatasetCore_init     (DatasetCore* self,
                                        PyObject*           args,
                                        PyObject*           kwargs){
+	printf("DatasetCore_init\n");
 	PyObject* file  = NULL;
 	uint64_t length = 0;
 	

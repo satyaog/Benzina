@@ -21,6 +21,10 @@
 #include "cuviddec.h"
 #include "nvcuvid.h"
 
+#include "benzina/iso/bmff-intops.h"
+
+#include "benzina/itu/h26x.h"
+#include "benzina/itu/h265.h"
 
 
 /* Data Structure Definitions */
@@ -106,6 +110,56 @@ static int   nvdtSequenceCb(UNIVERSE* u, CUVIDEOFORMAT *format){
     u->decoderInfo.target_rect.right   = u->decoderInfo.ulTargetWidth;
     u->decoderInfo.target_rect.bottom  = u->decoderInfo.ulTargetHeight;
     
+    printf("nvdtSequenceCb -- \n"
+           "  ulWidth = %lu\n"
+           "  ulHeight = %lu\n"
+           "  ulNumDecodeSurfaces = %lu\n"
+           "  CodecType = %u\n"
+           "  ChromaFormat = %u\n"
+           "  ulCreationFlags = %lu\n"
+           "  bitDepthMinus8 = %lu\n"
+           "  ulIntraDecodeOnly = %lu\n"
+           "  ulMaxWidth = %lu\n"
+           "  ulMaxHeight = %lu\n"
+           "  display_area.left = %u\n"
+           "  display_area.top = %u\n"
+           "  display_area.right = %u\n"
+           "  display_area.bottom = %u\n"
+           "  OutputFormat = %u\n"
+           "  DeinterlaceMode = %u\n"
+           "  ulTargetWidth = %lu\n"
+           "  ulTargetHeight = %lu\n"
+           "  ulNumOutputSurfaces = %lu\n"
+//           "  vidLock = %u\n"
+           "  target_rect.left = %u\n"
+           "  target_rect.top = %u\n"
+           "  target_rect.right = %u\n"
+           "  target_rect.bottom = %u\n",
+           u->decoderInfo.ulWidth,
+           u->decoderInfo.ulHeight,
+           u->decoderInfo.ulNumDecodeSurfaces,
+           u->decoderInfo.CodecType,
+           u->decoderInfo.ChromaFormat,
+           u->decoderInfo.ulCreationFlags,
+           u->decoderInfo.bitDepthMinus8,
+           u->decoderInfo.ulIntraDecodeOnly,
+           u->decoderInfo.ulMaxWidth,
+           u->decoderInfo.ulMaxHeight,
+           u->decoderInfo.display_area.left,
+           u->decoderInfo.display_area.top,
+           u->decoderInfo.display_area.right,
+           u->decoderInfo.display_area.bottom,
+           u->decoderInfo.OutputFormat,
+           u->decoderInfo.DeinterlaceMode,
+           u->decoderInfo.ulTargetWidth,
+           u->decoderInfo.ulTargetHeight,
+           u->decoderInfo.ulNumOutputSurfaces,
+//           u->decoderInfo.vidLock,
+           u->decoderInfo.target_rect.left,
+           u->decoderInfo.target_rect.top,
+           u->decoderInfo.target_rect.right,
+           u->decoderInfo.target_rect.bottom);
+    
     
     /* Print Image Size */
     if(!u->decoder){
@@ -162,6 +216,262 @@ static int   nvdtDecodeCb  (UNIVERSE* u, CUVIDPICPARAMS* picParams){
      * offsetof(CUVIDPICPARAMS, CodecSpecific.h264.fmo)) should be exactly 0.
      */
     
+    CUVIDPICPARAMS* pP = picParams;
+    CUVIDHEVCPICPARAMS* hevcPP = (CUVIDHEVCPICPARAMS*)&pP->CodecSpecific;
+
+    printf("SPS -- nvdec \n"
+           "  pic_width_in_luma_samples = %u\n"
+           "  pic_height_in_luma_samples = %u\n"
+           "  log2_min_luma_coding_block_size_minus3 = %u\n"
+           "  log2_diff_max_min_luma_coding_block_size = %u\n"
+           "  log2_min_transform_block_size_minus2 = %u\n"
+           "  log2_diff_max_min_transform_block_size = %u\n"
+           "  pcm_enabled_flag = %u\n"
+           "  log2_min_pcm_luma_coding_block_size_minus3 = %u\n"
+           "  log2_diff_max_min_pcm_luma_coding_block_size = %u\n"
+           "  pcm_sample_bit_depth_luma_minus1 = %u\n"
+           "  pcm_sample_bit_depth_chroma_minus1 = %u\n"
+           "  pcm_loop_filter_disabled_flag = %u\n"
+           "  strong_intra_smoothing_enabled_flag = %u\n"
+           "  max_transform_hierarchy_depth_intra = %u\n"
+           "  max_transform_hierarchy_depth_inter = %u\n"
+           "  amp_enabled_flag = %u\n"
+           "  separate_colour_plane_flag = %u\n"
+           "  log2_max_pic_order_cnt_lsb_minus4 = %u\n"
+           "  num_short_term_ref_pic_sets = %u\n"
+           "  long_term_ref_pics_present_flag = %u\n"
+           "  num_long_term_ref_pics_sps = %u\n"
+           "  sps_temporal_mvp_enabled_flag = %u\n"
+           "  sample_adaptive_offset_enabled_flag = %u\n"
+           "  scaling_list_enable_flag = %u\n"
+           "  IrapPicFlag = %u\n"
+           "  IdrPicFlag = %u\n"
+           "  bit_depth_luma_minus8 = %u\n"
+           "  bit_depth_chroma_minus8 = %u\n"
+           "  scalingList4x4[*] = %llu\n"
+           "  scalingList8x8[*] = %llu\n"
+           "  scalingList16x16[*] = %llu\n"
+           "  scalingList32x32[*] = %llu\n"
+           "  scalingListDC16x16[*] = %u\n"
+           "  scalingListDC32x32[*] = %u\n"
+           "  scalingList4x4[*] = %#10x\n"
+           "  scalingList8x8[*] = %#10x\n"
+           "  scalingList16x16[*] = %#10x\n"
+           "  scalingList32x32[*] = %#10x\n"
+           "  scalingListDC16x16[*] = %#6x\n"
+           "  scalingListDC32x32[*] = %#4x\n",
+           hevcPP->pic_width_in_luma_samples,
+           hevcPP->pic_height_in_luma_samples,
+           hevcPP->log2_min_luma_coding_block_size_minus3,
+           hevcPP->log2_diff_max_min_luma_coding_block_size,
+           hevcPP->log2_min_transform_block_size_minus2,
+           hevcPP->log2_diff_max_min_transform_block_size,
+           hevcPP->pcm_enabled_flag,
+           hevcPP->log2_min_pcm_luma_coding_block_size_minus3,
+           hevcPP->log2_diff_max_min_pcm_luma_coding_block_size,
+           hevcPP->pcm_sample_bit_depth_luma_minus1,
+           hevcPP->pcm_sample_bit_depth_chroma_minus1,
+           hevcPP->pcm_loop_filter_disabled_flag,
+           hevcPP->strong_intra_smoothing_enabled_flag,
+           hevcPP->max_transform_hierarchy_depth_intra,
+           hevcPP->max_transform_hierarchy_depth_inter,
+           hevcPP->amp_enabled_flag,
+           hevcPP->separate_colour_plane_flag,
+           hevcPP->log2_max_pic_order_cnt_lsb_minus4,
+           hevcPP->num_short_term_ref_pic_sets,
+           hevcPP->long_term_ref_pics_present_flag,
+           hevcPP->num_long_term_ref_pics_sps,
+           hevcPP->sps_temporal_mvp_enabled_flag,
+           hevcPP->sample_adaptive_offset_enabled_flag,
+           hevcPP->scaling_list_enable_flag,
+           hevcPP->IrapPicFlag,
+           hevcPP->IdrPicFlag,
+           hevcPP->bit_depth_luma_minus8,
+           hevcPP->bit_depth_chroma_minus8,
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList4x4),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList8x8),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList16x16),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList32x32),
+           benz_iso_bmff_as_u32((const uint8_t*)hevcPP->ScalingListDCCoeff16x16),
+           benz_iso_bmff_as_u16((const uint8_t*)hevcPP->ScalingListDCCoeff32x32),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList4x4),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList8x8),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList16x16),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList32x32),
+           benz_iso_bmff_as_u32((const uint8_t*)hevcPP->ScalingListDCCoeff16x16),
+           benz_iso_bmff_as_u16((const uint8_t*)hevcPP->ScalingListDCCoeff32x32));
+
+    printf("  ScalingList4x4 -- \n");
+    for (int i = 0; i < 6; ++i)
+    {
+        printf("    ");
+        for (int j = 0; j < 16; ++j)
+        {
+            printf("%#3u ", hevcPP->ScalingList4x4[i][j]);
+        }
+        printf("\n");
+    }
+
+    printf("  ScalingList8x8 -- \n");
+    for (int i = 0; i < 6; ++i)
+    {
+        printf("    ");
+        for (int j = 0; j < 64; ++j)
+        {
+            printf("%#3u ", hevcPP->ScalingList8x8[i][j]);
+        }
+        printf("\n");
+    }
+
+    printf("  ScalingList16x16 -- \n");
+    for (int i = 0; i < 6; ++i)
+    {
+        printf("    ");
+        for (int j = 0; j < 64; ++j)
+        {
+            printf("%#3u ", hevcPP->ScalingList16x16[i][j]);
+        }
+        printf("\n");
+    }
+
+    printf("  ScalingList32x32 -- \n");
+    for (int i = 0; i < 2; ++i)
+    {
+        printf("    ");
+        for (int j = 0; j < 64; ++j)
+        {
+            printf("%#3u ", hevcPP->ScalingList32x32[i][j]);
+        }
+        printf("\n");
+    }
+
+    printf("  ScalingListDCCoeff16x16 -- \n");
+    printf("    ");
+    for (int i = 0; i < 6; ++i)
+    {
+        printf("%#3u ", hevcPP->ScalingListDCCoeff16x16[i]);
+    }
+    printf("\n");
+
+    printf("  ScalingListDCCoeff32x32 -- \n");
+    printf("    ");
+    for (int i = 0; i < 2; ++i)
+    {
+        printf("%#3u ", hevcPP->ScalingListDCCoeff32x32[i]);
+    }
+    printf("\n");
+
+    printf("PPS -- nvdec \n"
+           "  dependent_slice_segments_enabled_flag = %u\n"
+           "  slice_segment_header_extension_present_flag = %u\n"
+           "  sign_data_hiding_enabled_flag = %u\n"
+           "  cu_qp_delta_enabled_flag = %u\n"
+           "  diff_cu_qp_delta_depth = %u\n"
+           "  init_qp_minus26 = %u\n"
+           "  pps_cb_qp_offset = %u\n"
+           "  pps_cr_qp_offset = %u\n"
+           "  constrained_intra_pred_flag = %u\n"
+           "  weighted_pred_flag = %u\n"
+           "  weighted_bipred_flag = %u\n"
+           "  transform_skip_enabled_flag = %u\n"
+           "  transquant_bypass_enabled_flag = %u\n"
+           "  entropy_coding_sync_enabled_flag = %u\n"
+           "  log2_parallel_merge_level_minus2 = %u\n"
+           "  num_extra_slice_header_bits = %u\n"
+           "  loop_filter_across_tiles_enabled_flag = %u\n"
+           "  loop_filter_across_slices_enabled_flag = %u\n"
+           "  output_flag_present_flag = %u\n"
+           "  num_ref_idx_l0_default_active_minus1 = %u\n"
+           "  num_ref_idx_l1_default_active_minus1 = %u\n"
+           "  lists_modification_present_flag = %u\n"
+           "  cabac_init_present_flag = %u\n"
+           "  pps_slice_chroma_qp_offsets_present_flag = %u\n"
+           "  deblocking_filter_override_enabled_flag = %u\n"
+           "  pps_deblocking_filter_disabled_flag = %u\n"
+           "  pps_beta_offset_div2 = %u\n"
+           "  pps_tc_offset_div2 = %u\n"
+           "  tiles_enabled_flag = %u\n"
+           "  uniform_spacing_flag = %u\n"
+           "  num_tile_columns_minus1 = %u\n"
+           "  num_tile_rows_minus1 = %u\n"
+           "  column_width_minus1[*] = %llu\n"
+           "  row_height_minus1[*] = %llu\n"
+           "  scalingList4x4[*] = %llu\n"
+           "  scalingList8x8[*] = %llu\n"
+           "  scalingList16x16[*] = %llu\n"
+           "  scalingList32x32[*] = %llu\n"
+           "  scalingListDC16x16[*] = %u\n"
+           "  scalingListDC32x32[*] = %u\n",
+           hevcPP->dependent_slice_segments_enabled_flag,
+           hevcPP->slice_segment_header_extension_present_flag,
+           hevcPP->sign_data_hiding_enabled_flag,
+           hevcPP->cu_qp_delta_enabled_flag,
+           hevcPP->diff_cu_qp_delta_depth,
+           hevcPP->init_qp_minus26,
+           hevcPP->pps_cb_qp_offset,
+           hevcPP->pps_cr_qp_offset,
+           hevcPP->constrained_intra_pred_flag,
+           hevcPP->weighted_pred_flag,
+           hevcPP->weighted_bipred_flag,
+           hevcPP->transform_skip_enabled_flag,
+           hevcPP->transquant_bypass_enabled_flag,
+           hevcPP->entropy_coding_sync_enabled_flag,
+           hevcPP->log2_parallel_merge_level_minus2,
+           hevcPP->num_extra_slice_header_bits,
+           hevcPP->loop_filter_across_tiles_enabled_flag,
+           hevcPP->loop_filter_across_slices_enabled_flag,
+           hevcPP->output_flag_present_flag,
+           hevcPP->num_ref_idx_l0_default_active_minus1,
+           hevcPP->num_ref_idx_l1_default_active_minus1,
+           hevcPP->lists_modification_present_flag,
+           hevcPP->cabac_init_present_flag,
+           hevcPP->pps_slice_chroma_qp_offsets_present_flag,
+           hevcPP->deblocking_filter_override_enabled_flag,
+           hevcPP->pps_deblocking_filter_disabled_flag,
+           hevcPP->pps_beta_offset_div2,
+           hevcPP->pps_tc_offset_div2,
+           hevcPP->tiles_enabled_flag,
+           hevcPP->uniform_spacing_flag,
+           hevcPP->num_tile_columns_minus1,
+           hevcPP->num_tile_rows_minus1,
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->column_width_minus1),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->row_height_minus1),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList4x4),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList8x8),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList16x16),
+           benz_iso_bmff_as_u64((const uint8_t*)hevcPP->ScalingList32x32),
+           benz_iso_bmff_as_u32((const uint8_t*)hevcPP->ScalingListDCCoeff16x16),
+           benz_iso_bmff_as_u32((const uint8_t*)hevcPP->ScalingListDCCoeff32x32));
+
+    printf("nvdecodeFeederThrdCore -- \n"
+           "picParams -- \n"
+           "  PicWidthInMbs = %u\n"
+           "  FrameHeightInMbs = %u\n"
+           "  CurrPicIdx = %u\n"
+           "  field_pic_flag = %u\n"
+           "  bottom_field_flag = %u\n"
+           "  second_field = %u\n"
+           "  nBitstreamDataLen = %u\n"
+           "  pBitstreamData = %lu\n"
+           "  pBitstreamData = %lli\n"
+           "  nNumSlices = %u\n"
+           "  pSliceDataOffsets = %u\n"
+           "  ref_pic_flag = %u\n"
+           "  intra_pic_flag = %u\n",
+           pP->PicWidthInMbs,
+           pP->FrameHeightInMbs,
+           pP->CurrPicIdx,
+           pP->field_pic_flag,
+           pP->bottom_field_flag,
+           pP->second_field,
+           pP->nBitstreamDataLen,
+           pP->pBitstreamData,
+           ((const int64_t*)pP->pBitstreamData)[0],
+           pP->nNumSlices,
+           pP->pSliceDataOffsets[0],
+           pP->ref_pic_flag,
+           pP->intra_pic_flag);
+
     if(cuvidDecodePicture(u->decoder, picParams) != CUDA_SUCCESS){
         fprintf(stdout, "Could not decode picture!\n");
         return -1;
@@ -246,6 +556,15 @@ static int   nvdtInitFFmpeg(UNIVERSE* u){
     ret         = avcodec_open2         (u->codecCtx,
                                          u->codec,
                                          NULL);
+
+    printf("nvdtInitFFmpeg -- \n"
+           "codecID = %u\n"
+           "codec = %u\n"
+           "avcodec_open2 ret = %i\n",
+           u->codecID,
+           u->codec,
+           ret);
+
     if(ret < 0){
         fprintf(stdout, "Could not open FFmpeg decoder context!\n");
         return -1;
@@ -370,6 +689,72 @@ exit_mmap:
     return -1;
 }
 
+void print_nalus(const uint8_t* record, int record_size)
+{
+    printf("print_nalus -- \n");
+
+    const int annex_begin_flag = 0x000001;
+    int flag = 0;
+    int pos = 0;
+    int begin = 0;
+
+    for (pos = 0; pos < record_size; ++pos)
+    {
+        flag = 0;
+        flag |= record[pos];
+        flag <<= 8;
+        flag |= record[pos+1];
+        flag <<= 8;
+        flag |= record[pos+2];
+        if (flag == annex_begin_flag)
+        {
+//            printf("%#4u: %#04x\n"
+//                   "%#4u: %#04x\n"
+//                   "%#4u: %#04x\n"
+//                   "%#4u: %#04x\n",
+//                   pos - 1, record[pos - 1],
+//                   pos, record[pos],
+//                   pos + 1, record[pos + 1],
+//                   pos + 2, record[pos + 2]);
+
+            pos += 3;
+
+            printf("  nalUnitLength = %u\n",
+                   pos - 3 - begin);
+
+            begin = pos;
+            flag = 0;
+
+//            printf("%#4u: %#04x\n"
+//                   "%#4u: %#04x\n",
+//                   pos, record[pos],
+//                   pos + 1, record[pos + 1]);
+
+            uint32_t header = (uint32_t)benz_iso_bmff_as_u16(record + pos);
+
+//            printf("header: %#06x\n",
+//                   header);
+
+            printf("NALU Header -- \n"
+                   "  pos = %u\n"
+                   "  length = %u\n"
+                   "  nal_unit_type = %llu\n"
+                   "  nuh_layer_id = %llu\n"
+                   "  nuh_temporal_id_plus1 = %llu\n",
+                   pos,
+                   record_size,
+                   (header >> 9) & 0x3F,            // 01111110 00000000
+                   (header >> 3) & 0x3F,            // 00000001 11111000
+                   header & 0x3F);                  // 00000000 00000111
+
+            pos += 2;
+        }
+    }
+
+    printf("  nalUnitLength = %u\n",
+           pos - begin);
+}
+
 /**
  * @brief Run
  */
@@ -380,7 +765,7 @@ static int   nvdtRun(UNIVERSE* u){
     int                   ret    = 0, match = 0;
     int                   i, j;
     int                   w, h;
-    
+
     /* Initialize */
     if(nvdtInitMmap(u) != 0){
         fprintf(stdout, "Failed to initialize memory map!\n");
@@ -394,14 +779,105 @@ static int   nvdtRun(UNIVERSE* u){
         fprintf(stdout, "Failed to initialize FFmpeg!\n");
         return -1;
     }
-    
+
     fprintf(stdout, "Dataset File size:         %15lu\n", u->fileH265Stat.st_size);
     fflush (stdout);
-    
+
+//    print_nalus(u->fileH265Data, u->fileH265Stat.st_size);
+
+    uint8_t buffer[100000] = {0};
+    int buf_len = 0;
+    const uint8_t* record = &u->fileH265Data[79421];
+
+    uint32_t lengthSizeMinusOne = (uint32_t)(record[21] & 3);                                      // 21 : 00000011
+    uint32_t numOfArrays = (uint32_t)record[22];
+    record += 23;                                                                                  // 22
+
+    printf("lengthSizeMinusOne = %u\n"
+           "numOfArrays = %u\n",
+           lengthSizeMinusOne,
+           numOfArrays);
+
+    benz_putbe8(buffer + buf_len, 0x00); // 0x00 + annexb begin flag
+    ++buf_len;
+
+    for (int i=0; i < numOfArrays; i++)
+    {
+        // In our case, array_completeness will always == 1
+//        uint32_t array_completeness = (uint32_t)(record[0] >> 7);                                  // 0 : 10000000
+        // bits(1) reserved = 0;
+        uint32_t NAL_unit_type = (uint32_t)(record[0] & 0x3f);                                     // 0 : 00111111
+        uint32_t numNalus = (uint32_t)benz_iso_bmff_as_u16(record + 1);                            // 1 (1-2)
+        record += 3;                         // 1 (1-2)
+
+        printf("nvdecodeFeederThrdCore -- \n"
+//               "array_completeness = %u\n"
+               "NAL_unit_type = %u\n"
+               "numNalus = %u\n",
+//               array_completeness,
+               NAL_unit_type,
+               numNalus);
+
+        uint8_t sps_id = 0;
+        for (int j=0; j < numNalus; j++)
+        {
+            const uint8_t* nalBuf = NULL;
+            int32_t nalBufSize = 0;
+
+            uint32_t nalUnitLength = (uint32_t)benz_iso_bmff_as_u16(record);
+            record += 2;
+
+            // annexb begin flag
+            benz_putbe8(buffer + buf_len, 0x00);
+            benz_putbe16(buffer + buf_len + 1, 0x0001);
+            buf_len += 3;
+
+            memcpy(buffer + buf_len, record, nalUnitLength);
+            buf_len += nalUnitLength;
+
+            uint32_t header = (uint32_t)benz_iso_bmff_as_u16(record);
+
+            printf("nvdecodeFeederThrdCore -- \n"
+                   "NALU Header -- \n"
+                   "  nalUnitLength = %u\n"
+                   "  nal_unit_type = %u\n"
+                   "  nuh_layer_id = %u\n"
+                   "  nuh_temporal_id_plus1 = %u\n",
+                   nalUnitLength,
+                   (header >> 9) & 0x3f,            // 01111110 00000000
+                   (header >> 3) & 0x3f,            // 00000001 11111000
+                   header & 0x07);                  // 00000000 00000111
+
+            switch (NAL_unit_type) {
+            case 32: //VPS_NUT
+                break;
+            case 33: //SPS_NUT
+                break;
+            case 34: //PPS_NUT
+                break;
+            }
+            record += nalUnitLength;
+        }
+    }
+
+    // annexb begin flag
+    benz_putbe8(buffer + buf_len, 0x00);
+    benz_putbe16(buffer + buf_len + 1, 0x0001);
+    buf_len += 3;
+
+    memcpy(buffer + buf_len, &u->fileH265Data[68] + 4, 78845 - 4);
+    buf_len += 78845 - 4;
+
+    print_nalus(buffer, buf_len);
+
     /* Feed entire dataset in one go to NVDECODE. */
+
+    printf("nvdtRun -- \n"
+           "cuvidParseVideoData\n");
+
     packet.flags        = 0;
-    packet.payload_size = u->fileH265Stat.st_size;
-    packet.payload      = u->fileH265Data;
+    packet.payload_size = buf_len;
+    packet.payload      = buffer;
     packet.timestamp    = 0;
     result = cuvidParseVideoData(u->parser, &packet);
     if(result != CUDA_SUCCESS){
@@ -419,20 +895,32 @@ static int   nvdtRun(UNIVERSE* u){
     cuvidDestroyVideoParser(u->parser);
     cuvidDestroyDecoder    (u->decoder);
     cudaDeviceSynchronize();
-    
+
     /* Feed entire dataset in one go to FFmpeg. */
-    u->packet->data = (void*)u->fileH265Data;
-    u->packet->size = (int)  u->fileH265Stat.st_size;
+    u->packet->data = (void*)buffer;
+    u->packet->size = (int)  buf_len;
+
+    printf("nvdtRun -- \n"
+           "avcodec_send_packet\n");
+
     ret = avcodec_send_packet  (u->codecCtx, u->packet);
     if(ret != 0){
         fprintf(stdout, "Error pushing packet! (%d)\n", ret);
         return ret;
     }
+
+    printf("nvdtRun -- \n"
+           "avcodec_send_packet NULL\n");
+
     ret = avcodec_send_packet  (u->codecCtx, NULL);
     if(ret != 0){
         fprintf(stdout, "Error flushing decoder! (%d)\n", ret);
         return ret;
     }
+
+    printf("nvdtRun -- \n"
+           "avcodec_receive_frame\n");
+
     ret = avcodec_receive_frame(u->codecCtx, u->frame);
     if(ret != 0){
         fprintf(stdout, "Error pulling frame! (%d)\n",  ret);
@@ -440,7 +928,7 @@ static int   nvdtRun(UNIVERSE* u){
     }
     w = u->decoderInfo.ulTargetWidth;
     h = u->decoderInfo.ulTargetHeight;
-    
+
     /* Final Check and Printouts */
     fprintf(stdout, "# of decoded images:       %15ld\n", u->numDecodedImages);
     fprintf(stdout, "# of mapped  images:       %15ld\n", u->numMappedImages);
@@ -470,7 +958,7 @@ static int   nvdtRun(UNIVERSE* u){
         }
     }
     fprintf(stdout, "SUCCESS: NVDEC-decoded image bitwise matches FFmpeg!\n");
-    
+
     /* Exit. */
     return match ? 0 : 1;
 }
