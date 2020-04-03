@@ -41,25 +41,29 @@ def test_imagenet():
     with File(dataset_path) as file:
         with Track(file, "bzna_input") as input_track, \
              Track(file, "bzna_target") as target_track:
-            dataset = ImageNet(input_track, target_track)
+            dataset = ImageNet(input_track, target_track, b"bzna_input")
 
             assert len(dataset) == len(input_track)
 
             item = dataset[2]
-            sample, target = item
+            sample, shape, location, vcc_location, target = item
+
+            assert shape == (600, 535)
+            assert location == (232384, 215750)
+            assert vcc_location == (623989, 2188)
 
             with Track(sample.as_file(), "bzna_input") as sample_input_track:
                 assert len(sample_input_track) == 1
-                assert sample_input_track.shape == (600, 535)
-                assert sample_input_track.sample_location(0) == (232384, 215750)
-                assert sample_input_track.video_configuration_location() == (623989, 2188)
+                assert sample_input_track.shape == shape
+                assert sample_input_track.sample_location(0) == location
+                assert sample_input_track.video_configuration_location() == vcc_location
                 assert sample_input_track[0].location == sample_input_track.sample_location(0)
 
             with Track(item.input.as_file(), "bzna_input") as sample_input_track:
                 assert len(sample_input_track) == 1
-                assert sample_input_track.shape == (600, 535)
-                assert sample_input_track.sample_location(0) == (232384, 215750)
-                assert sample_input_track.video_configuration_location() == (623989, 2188)
+                assert sample_input_track.shape == shape
+                assert sample_input_track.sample_location(0) == location
+                assert sample_input_track.video_configuration_location() == vcc_location
                 assert sample_input_track[0].location == sample_input_track.sample_location(0)
 
             assert target == (1,)

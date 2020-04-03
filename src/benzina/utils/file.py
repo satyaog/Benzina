@@ -1,6 +1,5 @@
 from collections import namedtuple
 
-from bitstring import ConstBitStream
 import numpy as np
 
 from pybenzinaparse import Parser
@@ -86,16 +85,14 @@ class File:
                                                   moov_pos + moov.header_size, moov.box_size - moov.header_size):
                 tkhd_pos, tkhd = next(find_headers_at(self._disk_file, {b"tkhd"}, trak_pos + trak.header_size))
                 self._disk_file.seek(tkhd_pos)
-                tkhd_bstr = ConstBitStream(self._disk_file.read(tkhd.box_size))
-                tkhd = next(Parser.parse(tkhd_bstr))
+                tkhd = next(Parser.parse(bytes_input=self._disk_file.read(tkhd.box_size)))
                 trak_shape = tkhd.width, tkhd.height
 
                 mdia_pos, mdia = next(find_headers_at(self._disk_file, {b"mdia"}, trak_pos + trak.header_size))
 
                 hdlr_pos, hdlr = next(find_headers_at(self._disk_file, {b"hdlr"}, mdia_pos + mdia.header_size))
                 self._disk_file.seek(hdlr_pos)
-                hdlr_bstr = ConstBitStream(self._disk_file.read(hdlr.box_size))
-                trak_label = next(Parser.parse(hdlr_bstr)).name
+                trak_label = next(Parser.parse(bytes_input=self._disk_file.read(hdlr.box_size))).name
 
                 if trak_label[-1] == 0:
                     trak_label = trak_label[:-1]
@@ -103,8 +100,7 @@ class File:
                 minf_pos, minf = next(find_headers_at(self._disk_file, {b"minf"}, mdia_pos + mdia.header_size))
                 stbl_pos, stbl = next(find_headers_at(self._disk_file, {b"stbl"}, minf_pos + minf.header_size))
                 self._disk_file.seek(stbl_pos)
-                stbl_bstr = ConstBitStream(self._disk_file.read(stbl.box_size))
-                trak_stbl = next(Parser.parse(stbl_bstr))
+                trak_stbl = next(Parser.parse(bytes_input=self._disk_file.read(stbl.box_size)))
                 trak_stbl_pos = stbl_pos
 
                 self._traks[trak_label] = Trak(trak_label, trak_shape, trak_stbl, trak_stbl_pos)

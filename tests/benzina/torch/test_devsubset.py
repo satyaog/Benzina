@@ -24,7 +24,7 @@ def test_devsubset_pytorch_loading():
         with Track(file, "bzna_input") as input_track, \
              Track(file, "bzna_target") as target_track, \
              Track(file, "bzna_fname") as filename_track:
-            dataset = bz.dataset.ImageNet(input_track, target_track)
+            dataset = bz.dataset.ImageNet(input_track, target_track, b"bzna_thumb")
             subset_indices = get_indices_by_names(filename_track, subset_filenames)
             subset = torch.utils.data.Subset(dataset, subset_indices)
 
