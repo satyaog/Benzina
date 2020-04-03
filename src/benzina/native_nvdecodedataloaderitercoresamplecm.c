@@ -15,6 +15,7 @@
 static PyObject* NvdecodeDataLoaderIterCoreSampleCM_new             (PyTypeObject* type,
                                                                      PyObject*     args,
                                                                      PyObject*     kwargs){
+	printf("NvdecodeDataLoaderIterCoreSampleCM_new\n");
 	(void)args;
 	(void)kwargs;
 	
@@ -66,6 +67,7 @@ static int       NvdecodeDataLoaderIterCoreSampleCM_clear           (NvdecodeDat
 static int       NvdecodeDataLoaderIterCoreSampleCM_init            (NvdecodeDataLoaderIterCoreSampleCM* self,
                                                                      PyObject*                           args,
                                                                      PyObject*                           kwargs){
+    printf("NvdecodeDataLoaderIterCoreSampleCM_init\n");
 	NvdecodeDataLoaderIterCoreBatchCM* batch               = NULL;
 	unsigned long long                 index               = 0;
 	unsigned long long                 dstPtr              = 0;
@@ -79,17 +81,26 @@ static int       NvdecodeDataLoaderIterCoreSampleCM_init            (NvdecodeDat
 		return -1;
 	}
 	
+	printf("NvdecodeDataLoaderIterCoreSampleCM_init - args parsed\n");
+	printf("NvdecodeDataLoaderIterCoreSampleCM_init %i %i\n", location, config_location);
+
 	if(!PyTuple_Check(location) ||
 	   !PyArg_ParseTuple(location, "kk", &self->location[0], &self->location[1])){
         Py_DECREF(location);
         location = NULL;
+        printf("NvdecodeDataLoaderIterCoreSampleCM_init - location failed\n");
 	}
+
+	printf("NvdecodeDataLoaderIterCoreSampleCM_init - location parsed\n");
 
 	if(!PyTuple_Check(config_location) ||
 	   !PyArg_ParseTuple(config_location, "kk", &self->config_location[0], &self->config_location[1])){
         Py_DECREF(config_location);
         config_location = NULL;
+        printf("NvdecodeDataLoaderIterCoreSampleCM_init - config_location failed\n");
 	}
+
+	printf("NvdecodeDataLoaderIterCoreSampleCM_init - config_location parsed\n");
 
 	if(location == NULL || config_location == NULL){
         return -1;
@@ -99,6 +110,12 @@ static int       NvdecodeDataLoaderIterCoreSampleCM_init            (NvdecodeDat
 	self->batch  = batch;
 	self->index  = index;
 	self->dstPtr = (void*)dstPtr;
+	printf("NvdecodeDataLoaderIterCoreSampleCM_init %d: %d %d; %d %d\n",
+	       self->index,
+	       self->location[0],
+	       self->location[1],
+	       self->config_location[0],
+	       self->config_location[1]);
 	//PyObject_GC_Track(self);
 	return 0;
 }
