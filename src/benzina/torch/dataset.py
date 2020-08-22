@@ -48,9 +48,11 @@ class ImageNet(Dataset):
         self._targets = np.full(len(input_track), -1, np.int64)
         self._targets[:len(target_track)] = np.frombuffer(buffer, np.dtype("<i8"))
 
-        self._shapes = [None] * len(input_track)
-        self._locations = [None] * len(input_track)
-        self._vcc_locations = [None] * len(input_track)
+        self._index = np.zeros(shape=(len(input_track), 6), dtype=np.uint64)
+
+        self._shapes = self._index[:, 0:2]
+        self._locations = self._index[:, 2:4]
+        self._vcc_locations = self._index[:, 4:6]
 
         for i, sample in enumerate(Track(_.as_file(), input_label) for _ in self._track):
             self._shapes[i] = sample.shape
