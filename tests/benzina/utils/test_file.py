@@ -10,6 +10,7 @@ def test_file():
 
     with File(dataset_path) as file:
         input_trak = file.trak("bzna_input")
+        assert input_trak is not None
         assert input_trak == file.trak("bzna_input\0")
         assert input_trak == file.trak(b"bzna_input")
         assert input_trak == file.trak(b"bzna_input\0")
