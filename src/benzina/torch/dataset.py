@@ -61,9 +61,9 @@ class ImageNet(Dataset):
 
     def __getitem__(self, index):
         return ImageNet._Item(*Dataset.__getitem__(self, index),
-                              self._shapes[index],
-                              self._locations[index],
-                              self._vcc_locations[index],
+                              (int(self._shapes[index][0]), int(self._shapes[index][1])),
+                              (int(self._locations[index][0]), int(self._locations[index][1])),
+                              (int(self._vcc_locations[index][0]), int(self._vcc_locations[index][1])),
                               (self.targets[index],))
 
     def __add__(self, other):
