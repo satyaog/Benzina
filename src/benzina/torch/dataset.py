@@ -51,8 +51,12 @@ class Dataset(torch.utils.data.Dataset):
                              "not specified.")
 
         self._track = track
-        self._track.open()
-        self._filename = track.file.path
+        if self._track.file.closed:
+            # Parse metadata then re-close the file handle
+            self._track.open()
+            self._track.close()
+
+        self._filename = track.file.name
 
     @property
     def filename(self):
@@ -107,11 +111,15 @@ class ClassificationDataset(Dataset):
 
         self._input_label = input_label
 
-        target_track.open()
+        is_target_track_closed = target_track.file.closed
+        if is_target_track_closed:
+            target_track.open()
         location_first, _ = target_track[0].location
         location_last, size_last = target_track[-1].location
         target_track.file.seek(location_first)
         buffer = target_track.file.read(location_last + size_last - location_first)
+        if is_target_track_closed:
+            target_track.close()
 
         self._targets = np.full(len(self._track), -1, np.int64)
         self._targets[:len(target_track)] = np.frombuffer(buffer, np.dtype("<i8"))
@@ -189,8 +197,8 @@ class ImageNet(ClassificationDataset):
 
         ClassificationDataset.__init__(self, archive, tracks, input_label)
 
-        self._indices = np.array(range(ClassificationDataset.__len__(self)),
-                                 np.int64)
+        self._indices = np.arange(ClassificationDataset.__len__(self),
+                                  dtype=np.int64)
 
         if split == "test":
             self._indices = self._indices[-self.LEN_TEST:]
