@@ -66,13 +66,40 @@ class Dataset(torch.utils.data.Dataset):
         return len(self._track)
     
     def __getitem__(self, index: int):
-        return Dataset._Item(self._track[index])
+        return Dataset._Item(input=self._track[index])
 
     def __add__(self, other):
         raise NotImplementedError()
 
 
-class ClassificationDataset(Dataset):
+class Mp4Dataset(Dataset):
+    """
+    Args:
+        archive (str or pair of :class:`Track`): path to the archive or a pair
+            of Track. If a pair of Track, :attr:`tracks` will be ignored.
+        track (str or :class:`Track`, optional): track label or a Track. If a
+            Track, :attr:`archive` must not be specified.
+            (default: ``"bzna_input"``)
+        input_label (str, optional): label of the inputs to use in the input
+            track. (default: ``"bzna_thumb"``)
+    """
+    def __init__(self,
+                 archive: typing.Union[str, _TrackType] = None,
+                 track: _TrackType = "bzna_input",
+                 input_label: str = "bzna_thumb"):
+        super().__init__(archive, track)
+        self._input_label = input_label
+        self._cache = [Track(item.as_file(), self._input_label)
+                       for item in self._track]
+
+    def __getitem__(self, index: int):
+        return Dataset._Item(input=self._cache[index])
+
+    def __add__(self, other):
+        raise NotImplementedError()
+
+
+class ClassificationDataset(Mp4Dataset):
     """
     Args:
         archive (str or pair of :class:`Track`): path to the archive or a pair
@@ -85,7 +112,7 @@ class ClassificationDataset(Dataset):
             track. (default: ``"bzna_thumb"``)
     """
 
-    _Item = namedtuple("Item", ["input", "input_label", "target"])
+    _Item = namedtuple("Item", ["input", "aux"])
 
     def __init__(self,
                  archive: typing.Union[str, _TrackPairType] = None,
@@ -107,9 +134,7 @@ class ClassificationDataset(Dataset):
         else:
             input_track, target_track = tracks
 
-        Dataset.__init__(self, input_track)
-
-        self._input_label = input_label
+        Mp4Dataset.__init__(self, input_track, input_label=input_label)
 
         is_target_track_closed = target_track.file.closed
         if is_target_track_closed:
@@ -125,10 +150,9 @@ class ClassificationDataset(Dataset):
         self._targets[:len(target_track)] = np.frombuffer(buffer, np.dtype("<i8"))
 
     def __getitem__(self, index: int):
-        item = Dataset.__getitem__(self, index)
-        return self._Item(input=item.input,
-                          input_label=self._input_label,
-                          target=(self.targets[index],))
+        item = Mp4Dataset.__getitem__(self, index)
+        return ClassificationDataset._Item(input=item.input,
+                                           aux=self._targets[index:index+1])
 
     def __add__(self, other):
         raise NotImplementedError()
@@ -215,10 +239,9 @@ class ImageNet(ClassificationDataset):
             self._targets = self._targets[len_train:-self.LEN_TEST]
 
     def __getitem__(self, index: int):
-        item = Dataset.__getitem__(self, self._indices[index])
+        item = Mp4Dataset.__getitem__(self, self._indices[index])
         return ImageNet._Item(input=item.input,
-                              input_label=self._input_label,
-                              target=(self._targets[index],))
+                              aux=self._targets[index:index+1])
 
     def __len__(self):
         return len(self._indices)

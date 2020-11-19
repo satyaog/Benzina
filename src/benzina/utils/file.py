@@ -10,13 +10,28 @@ FileDesc = namedtuple("FileDesc", ["name", "mode"])
 Trak = namedtuple("Trak", ["label", "shape", "stbl_pos"])
 
 
-class FileProxy:
+class FileReadMixin:
+    def __init__(self, disk_file=None, *_args, **_kwargs):
+        self._file = disk_file
+
+    @property
+    def closed(self):
+        return self._file is None or self._file.closed
+
+    def seek(self, offset):
+        self._file.seek(offset)
+
+    def read(self, size):
+        return self._file.read(size)
+
+
+class FileProxy(FileReadMixin):
     """ When closed, this proxy can be serialized without problems.
     """
     def __init__(self, disk_file, mode="rb"):
+        super().__init__(None, mode=mode)
         self._name = None
         self._mode = mode
-        self._file = None
 
         if isinstance(disk_file, str):
             self._name = disk_file
@@ -39,31 +54,20 @@ class FileProxy:
     def mode(self):
         return self._mode
 
-    @property
-    def closed(self):
-        return self._file is None or self._file.closed
-
     def open(self):
         if self.closed:
             self._file = open(self._name, mode=self._mode)
 
     def close(self):
-        if self._file is not None:
+        if not self.closed:
             self._file.close()
             self._file = None
 
-    def seek(self, offset):
-        self._file.seek(offset)
 
-    def read(self, size):
-        return self._file.read(size)
-
-
-class File(FileProxy):
+class File(FileReadMixin):
     def __init__(self, disk_file, offset=0):
-        super().__init__(disk_file, "rb")
-
-        self._owner = None
+        super().__init__(disk_file, offset=offset)
+        self._owner = False
         self._offset = offset
         self._traks = None
 
@@ -71,7 +75,9 @@ class File(FileProxy):
         # this instance
         if isinstance(disk_file, str):
             self._owner = True
-        elif not self.closed:
+        if not isinstance(self._file, FileProxy):
+            self._file = FileProxy(disk_file, mode="rb")
+        if not self.closed:
             self._parse()
 
     def __enter__(self):
@@ -88,13 +94,20 @@ class File(FileProxy):
             self.close()
 
     @property
+    def name(self):
+        return self._file.name
+
+    @property
     def offset(self):
         return self._offset
 
     def open(self):
-        super().open()
+        self._file.open()
         if self._traks is None:
             self._parse()
+
+    def close(self):
+        self._file.close()
 
     def trak(self, label):
         if self._traks is None:
@@ -210,7 +223,6 @@ class Track:
         return self._file.read(size)
 
     def sample_as_file(self, index):
-        self.open()
         offset, _ = self.sample_location(index)
         return self._file.subfile(offset)
 
