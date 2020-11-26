@@ -20,47 +20,98 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: Set git identity 
+        run: |        
+          git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git config --global user.name "Github Actions"
+          
+      - name: Add upstream remote
+        run: |
+          git remote add -f upstream https://github.com/obilaniu/Benzina.git
+
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
         with:
           ref: pr_sink
+      # Runs a set of commands using the runners shell
+      - name: Rebase pr_sink
+        run: |
+          git remote -v
+          git rebase upstream/master
+          git push --force
 
       # Runs a set of commands using the runners shell
-      - name: Pull/rebase master/pr_sink on top of upstream master
+      - name: Prepare to sync PR
         run: |
-          git remote add -f upstream https://github.com/obilaniu/Benzina
-          git remote add mila https://github.com/mila-iqia/Benzina
-          git push origin upstream/master:master
-          git push mila upstream/master:master
-          git rebase upstream/master
-          git push --force origin HEAD:pr_sink
+          PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
+          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
+          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
         with:
-          clean: false
-
+          ref: master
       # Runs a set of commands using the runners shell
-      - name: Prepare Mila PR
+      - name: Pull master
         run: |
-          git remote add -f _mila git@github.com:satyaog/Benzina.git
-          git push --force _mila ${{ github.ref }}:${{ github.ref }}_mila
+          git remote -v
+          git push upstream/master:master
+          
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          repository: mila-iqia/Benzina
+          token: ${{ secrets.PR_SINK }}
+          persist-credentials: true
+          fetch-depth: 0
+      # Runs a set of commands using the runners shell
+      - name: Pull master on Mila
+        run: |
+          git remote -v
+          git push upstream/master:master
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          repository: mila-iqia/Benzina
+          token: ${{ secrets.PR_SINK }}
+      # Runs a set of commands using the runners shell
+      - name: Pull master on Mila
+        run: |
+          git push https://$USERNAME:$REPO_KEY@github.com/$REPO_PATH.git $GITHUB_REF
+          git push origin upstream/master:master
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          ref: pr_sink
+      # Runs a set of commands using the runners shell
+      - name: Rebase pr_sink and prepare to sync PR
+        run: |
+          git rebase upstream/master
+          git push --force origin pr_sink
           
           PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
           PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
           PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
 
+      - name: Debug PR
+        run: |
+          printf "$PR_TITLE"
+          echo
+          printf "$PR_BODY"
+          echo
+
       - uses: actions/checkout@v2
         with:
           repository: obilaniu/Benzina
         name: Checkout base branch
-
       - uses: peter-evans/create-pull-request@v3
         with:
           title: $PR_TITLE
           body: |
             $PR_BODY
           branch: ${{ github.ref }}
-          push-to-fork: mila-iqia/Benzina
+          push-to-fork: satyaog/Benzina
           delete-branch: true
         name: Create Mila PR
