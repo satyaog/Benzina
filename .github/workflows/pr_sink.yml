@@ -54,7 +54,7 @@ jobs:
       - name: Pull master
         run: |
           git remote -v
-          git push upstream/master:master
+          git push `git rev-parse upstream/master`:master
           
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
@@ -67,7 +67,7 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push upstream/master:master
+          git push `git rev-parse upstream/master`:master
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
@@ -78,7 +78,7 @@ jobs:
       - name: Pull master on Mila
         run: |
           git push https://$USERNAME:$REPO_KEY@github.com/$REPO_PATH.git $GITHUB_REF
-          git push origin upstream/master:master
+          git push `git rev-parse upstream/master`:master
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
