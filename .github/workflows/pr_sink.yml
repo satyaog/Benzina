@@ -67,7 +67,7 @@ jobs:
           git remote -v
           git push https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git `git rev-parse upstream/master`:master
         env:
-          USERNAME: github-actions
+          USERNAME: ${{ github.actor }}
           TOKEN: ${{ secrets.PR_SINK }}
           
 #       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
