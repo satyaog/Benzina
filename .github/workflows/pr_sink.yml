@@ -26,11 +26,15 @@ jobs:
         with:
           ref: pr_sink
 
-      - name: Set git identity and upstream remote
+      - name: Set git identity and remotes
         run: |        
           git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git config --global user.name "Github Actions"
           git remote add -f upstream https://github.com/obilaniu/Benzina
+          git remote add -f mila-iqia git push https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git
+        env:
+          USERNAME: github-actions
+          TOKEN: ${{ secrets.PR_SINK }}
 
       # Runs a set of commands using the runners shell
       - name: Rebase pr_sink
@@ -55,19 +59,25 @@ jobs:
         run: |
           git remote -v
           git push origin `git rev-parse upstream/master`:master
-          
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
-        with:
-          repository: mila-iqia/Benzina
-          token: ${{ secrets.PR_SINK }}
-          persist-credentials: true
-          fetch-depth: 0
+
       # Runs a set of commands using the runners shell
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push origin `git rev-parse upstream/master`:master
+          git push mila-iqia `git rev-parse upstream/master`:master
+          
+#       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+#       - uses: actions/checkout@v2
+#         with:
+#           repository: mila-iqia/Benzina
+#           token: ${{ secrets.PR_SINK }}
+#           persist-credentials: true
+#           fetch-depth: 0
+#       # Runs a set of commands using the runners shell
+#       - name: Pull master on Mila
+#         run: |
+#           git remote -v
+#           git push origin `git rev-parse upstream/master`:master
 
       - name: Debug PR
         run: |
@@ -76,16 +86,16 @@ jobs:
           printf "$PR_BODY"
           echo
 
-      - uses: actions/checkout@v2
-        with:
-          repository: obilaniu/Benzina
-        name: Checkout base branch
-      - uses: peter-evans/create-pull-request@v3
-        with:
-          title: $PR_TITLE
-          body: |
-            $PR_BODY
-          branch: ${{ github.ref }}
-          push-to-fork: satyaog/Benzina
-          delete-branch: true
-        name: Create Mila PR
+#       - uses: actions/checkout@v2
+#         with:
+#           repository: obilaniu/Benzina
+#         name: Checkout base branch
+#       - uses: peter-evans/create-pull-request@v3
+#         with:
+#           title: $PR_TITLE
+#           body: |
+#             $PR_BODY
+#           branch: ${{ github.ref }}
+#           push-to-fork: satyaog/Benzina
+#           delete-branch: true
+#         name: Create Mila PR
