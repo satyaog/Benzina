@@ -55,6 +55,7 @@ jobs:
           repository: obilaniu/Benzina
       - name: Checkout base branch
 
+      # Create Mila PR
       - uses: peter-evans/create-pull-request@v3
         with:
           title: $PR_TITLE
@@ -63,5 +64,3 @@ jobs:
           branch: ${{ github.ref }}
           push-to-fork: mila-iqia/Benzina
           delete-branch: true
-      # Runs a set of commands using the runners shell
-      - name: Create Mila PR
