@@ -65,7 +65,10 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push mila-iqia `git rev-parse upstream/master`:master
+          git push https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git `git rev-parse upstream/master`:master
+        env:
+          USERNAME: github-actions
+          TOKEN: ${{ secrets.PR_SINK }}
           
 #       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
 #       - uses: actions/checkout@v2
