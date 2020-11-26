@@ -20,10 +20,14 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      - name: Set git identity
+      - name: Set git identity 
         run: |        
           git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git config --global user.name "Github Actions"
+          
+      - name: Add upstream remote
+        run: |
+          git remote add -f upstream https://github.com/obilaniu/Benzina.git
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
@@ -33,7 +37,6 @@ jobs:
       - name: Rebase pr_sink
         run: |
           git remote -v
-          git remote add -f upstream https://github.com/obilaniu/Benzina.git
           git rebase upstream/master
           git push --force
 
@@ -52,7 +55,6 @@ jobs:
       - name: Pull master
         run: |
           git remote -v
-          git remote add -f upstream https://github.com/obilaniu/Benzina.git
           git push upstream/master:master
           
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
@@ -66,7 +68,6 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git remote add -f upstream https://github.com/obilaniu/Benzina.git
           git push upstream/master:master
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
@@ -78,7 +79,6 @@ jobs:
       - name: Pull master on Mila
         run: |
           git push https://$USERNAME:$REPO_KEY@github.com/$REPO_PATH.git $GITHUB_REF
-          git remote add -f upstream https://github.com/obilaniu/Benzina
           git push origin upstream/master:master
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
@@ -88,7 +88,6 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Rebase pr_sink and prepare to sync PR
         run: |
-          git remote add -f upstream https://github.com/obilaniu/Benzina
           git rebase upstream/master
           git push --force origin pr_sink
           
@@ -113,6 +112,6 @@ jobs:
           body: |
             $PR_BODY
           branch: ${{ github.ref }}
-          push-to-fork: mila-iqia/Benzina
+          push-to-fork: satyaog/Benzina
           delete-branch: true
         name: Create Mila PR
