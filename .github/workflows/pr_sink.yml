@@ -54,7 +54,7 @@ jobs:
       - name: Pull master
         run: |
           git remote -v
-          git push `git rev-parse upstream/master`:master
+          git push origin `git rev-parse upstream/master`:master
           
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
@@ -67,32 +67,7 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push `git rev-parse upstream/master`:master
-
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
-        with:
-          repository: mila-iqia/Benzina
-          token: ${{ secrets.PR_SINK }}
-      # Runs a set of commands using the runners shell
-      - name: Pull master on Mila
-        run: |
-          git push https://$USERNAME:$REPO_KEY@github.com/$REPO_PATH.git $GITHUB_REF
-          git push `git rev-parse upstream/master`:master
-
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
-        with:
-          ref: pr_sink
-      # Runs a set of commands using the runners shell
-      - name: Rebase pr_sink and prepare to sync PR
-        run: |
-          git rebase upstream/master
-          git push --force origin pr_sink
-          
-          PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
-          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
-          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
+          git push origin `git rev-parse upstream/master`:master
 
       - name: Debug PR
         run: |
