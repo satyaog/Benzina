@@ -1,0 +1,67 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on pull request events but only for the pr_sink branch
+  pull_request:
+    branches: [ pr_sink ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "sync_pr"
+  sync_pr:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          ref: pr_sink
+
+      # Runs a set of commands using the runners shell
+      - name: Pull/rebase master/pr_sink on top of upstream master
+        run: |
+          git remote add -f upstream https://github.com/obilaniu/Benzina
+          git remote add mila https://github.com/mila-iqia/Benzina
+          git push origin upstream/master:master
+          git push mila upstream/master:master
+          git rebase upstream/master
+          git push --force origin HEAD:pr_sink
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          clean: false
+
+      # Runs a set of commands using the runners shell
+      - name: Prepare Mila PR
+        run: |
+          git remote add -f _mila git@github.com:satyaog/Benzina.git
+          git push --force _mila ${{ github.ref }}:${{ github.ref }}_mila
+          
+          PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
+          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
+          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
+
+      - uses: actions/checkout@v2
+        with:
+          repository: obilaniu/Benzina
+      - name: Checkout base branch
+
+      - uses: peter-evans/create-pull-request@v3
+        with:
+          title: $PR_TITLE
+          body: |
+            $PR_BODY
+          branch: ${{ github.ref }}
+          push-to-fork: mila-iqia/Benzina
+          delete-branch: true
+      # Runs a set of commands using the runners shell
+      - name: Create Mila PR
