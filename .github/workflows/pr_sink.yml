@@ -59,7 +59,7 @@ jobs:
       - name: Pull master
         run: |
           git remote -v
-          git push origin `git rev-parse upstream/master`:master
+          git push origin upstream/master:master
 
       # Runs a set of commands using the runners shell
       - name: Pull master on Mila
