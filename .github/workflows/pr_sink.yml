@@ -31,7 +31,8 @@ jobs:
           git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git config --global user.name "Github Actions"
           git remote add -f upstream https://github.com/obilaniu/Benzina
-          git remote add -f mila-iqia git push https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git
+          echo [$USERNAME:$TOKEN]
+          git remote add -f mila-iqia https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git
         env:
           USERNAME: github-actions
           TOKEN: ${{ secrets.PR_SINK }}
@@ -64,7 +65,10 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push mila-iqia `git rev-parse upstream/master`:master
+          git push https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git `git rev-parse upstream/master`:master
+        env:
+          USERNAME: github-actions
+          TOKEN: ${{ secrets.PR_SINK }}
           
 #       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
 #       - uses: actions/checkout@v2
