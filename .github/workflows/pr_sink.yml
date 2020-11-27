@@ -47,6 +47,8 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Prepare to sync PR
         run: |
+          echo [${{ github.repository }}]
+          echo [${{ github.event.id }}]
           PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
           echo [$PR]
           PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
