@@ -1,0 +1,75 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run.
+on:
+  # Triggers the workflow on pull request events but only for the _pr_sink branch
+  pull_request:
+    branches: [ _pr_sink ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "sync_pr"
+  sync_pr:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    env:
+      PARENT: obilaniu/Benzina
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Temporary set the parent repository
+      - id: _var
+        run: |
+          # Set parent var as the github event does not expose github.event.repository.parent.full_name
+          echo ::set-output name=parent::${PARENT}
+
+      - uses: actions/checkout@v2
+        with:
+          repository: ${{ steps._var.outputs.parent }}
+      - name: Set git identity and variables
+        id: var
+        run: |
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "Github actions"
+          # Set parent var as the github event does not expose github.event.repository.parent.full_name
+          echo ::set-output name=parent::${PARENT}
+          echo ::set-output name=base::`git symbolic-ref HEAD --short`
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          ref: _pr_sink
+      # Runs a set of commands using the runners shell
+      - name: Rebase pr_sink and pull default branch
+        run: |
+          git remote add upstream https://github.com/${{ steps.var.outputs.parent }}
+          git fetch --no-tags --no-recurse-submodules --unshallow \
+            upstream ${{ steps.var.outputs.base }}
+          git rebase upstream/${{ steps.var.outputs.base }}
+          git push --force origin _pr_sink:_pr_sink
+          git push origin \
+            upstream/${{ steps.var.outputs.base }}:${{ github.event.pull_request.base.repo.default_branch }}
+
+      - uses: actions/checkout@v2
+        with:
+          repository: ${{ steps._var.outputs.parent }}
+      # Runs a set of commands using the runners shell
+      - name: Set PR HEAD
+        run: |
+          git remote add _head_fork https://github.com/${{ github.event.pull_request.head.repo.full_name }}
+          git fetch _head_fork ${{ github.event.pull_request.head.ref }}
+          git reset --hard _head_fork/${{ github.event.pull_request.head.ref }}
+          # Remove _head_fork to avoid branch ambiguity in create-pull-request
+          git remote remove _head_fork
+      - uses: peter-evans/create-pull-request@v3
+        with:
+          title: ${{ github.event.pull_request.title }}
+          body: |
+            ${{ github.event.pull_request.body }}
+          branch: ${{ github.event.pull_request.head.ref }}
+          delete-branch: true
+          push-to-fork: ${{ github.event.pull_request.base.repo.full_name }}
+          draft: true
+        name: Create PR
