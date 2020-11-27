@@ -1,0 +1,107 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on pull request events but only for the pr_sink branch
+  pull_request:
+    branches: [ pr_sink ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "sync_pr"
+  sync_pr:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          ref: pr_sink
+
+      - name: Set git identity and remotes
+        run: |        
+          git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git config --global user.name "Github Actions"
+          git remote add -f upstream https://github.com/obilaniu/Benzina
+          echo [$USERNAME:$TOKEN]
+          git remote add mila-iqia https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina
+        env:
+          USERNAME: github-actions
+          TOKEN: ${{ secrets.PR_SINK }}
+
+      # Runs a set of commands using the runners shell
+      - name: Rebase pr_sink
+        run: |
+          git remote -v
+          git rebase upstream/master
+          git push --force
+
+      # Runs a set of commands using the runners shell
+      - name: Prepare to sync PR
+        run: |
+          PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
+          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
+          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          ref: master
+      # Runs a set of commands using the runners shell
+      - name: Pull master
+        run: |
+          git remote -v
+          git push origin upstream/master:master
+
+      # Runs a set of commands using the runners shell
+      - name: Pull master on Mila
+        run: |
+          git remote -v
+          git config -l | grep 'http\..*\.extraheader' | cut -d= -f1 | \
+            xargs -L1 git config --unset-all
+          git push https://satyaog:$TOKEN@github.com/mila-iqia/Benzina upstream/master:master
+        env:
+          USERNAME: ${{ github.actor }}
+          TOKEN: ${{ secrets.PR_SINK }}
+          
+#       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+#       - uses: actions/checkout@v2
+#         with:
+#           repository: mila-iqia/Benzina
+#           token: ${{ secrets.PR_SINK }}
+#           persist-credentials: true
+#           fetch-depth: 0
+#       # Runs a set of commands using the runners shell
+#       - name: Pull master on Mila
+#         run: |
+#           git remote -v
+#           git push origin upstream/master:master
+
+      - name: Debug PR
+        run: |
+          printf "$PR_TITLE"
+          echo
+          printf "$PR_BODY"
+          echo
+
+#       - uses: actions/checkout@v2
+#         with:
+#           repository: obilaniu/Benzina
+#         name: Checkout base branch
+#       - uses: peter-evans/create-pull-request@v3
+#         with:
+#           title: $PR_TITLE
+#           body: |
+#             $PR_BODY
+#           branch: ${{ github.ref }}
+#           push-to-fork: satyaog/Benzina
+#           delete-branch: true
+#         name: Create Mila PR
