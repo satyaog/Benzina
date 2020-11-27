@@ -32,7 +32,7 @@ jobs:
           git config --global user.name "Github Actions"
           git remote add -f upstream https://github.com/obilaniu/Benzina
           echo [$USERNAME:$TOKEN]
-          git remote add mila-iqia https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git
+          git remote add mila-iqia https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina
         env:
           USERNAME: github-actions
           TOKEN: ${{ secrets.PR_SINK }}
@@ -65,7 +65,7 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push https://token:$TOKEN@github.com/mila-iqia/Benzina.git upstream/master:master
+          git push https://token:$TOKEN@github.com/mila-iqia/Benzina upstream/master:master
         env:
           USERNAME: ${{ github.actor }}
           TOKEN: ${{ secrets.PR_SINK }}
