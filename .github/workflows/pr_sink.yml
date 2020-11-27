@@ -65,7 +65,7 @@ jobs:
       - name: Pull master on Mila
         run: |
           git remote -v
-          git push https://token:$TOKEN@github.com/mila-iqia/Benzina upstream/master:master
+          git push https://$TOKEN@github.com/mila-iqia/Benzina upstream/master:master
         env:
           USERNAME: ${{ github.actor }}
           TOKEN: ${{ secrets.PR_SINK }}
