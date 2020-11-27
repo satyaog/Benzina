@@ -48,8 +48,10 @@ jobs:
       - name: Prepare to sync PR
         run: |
           PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
-          export PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
-          export PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
+          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
+          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
+          echo "::set-env name=PR_TITLE::${PR_TITLE}"
+          echo "::set-env name=PR_BODY::${PR_BODY}"
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
@@ -87,10 +89,17 @@ jobs:
 
       - name: Debug PR
         run: |
-          printf "$PR_TITLE"
+          printf ["$PR_TITLE"]
           echo
-          printf "$PR_BODY"
+          printf ["$PR_BODY"]
           echo
+          printf ["$PR_TITLE__"]
+          echo
+          printf ["$PR_BODY__"]
+          echo
+        env:
+          PR_TITLE__: $PR_TITLE
+          PR_BODY__: $PR_BODY
 
 #       - uses: actions/checkout@v2
 #         with:
