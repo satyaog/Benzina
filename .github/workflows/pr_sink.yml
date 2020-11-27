@@ -56,6 +56,7 @@ jobs:
           echo ["${{ github.event.pull_request.body }}"]
           
           echo [${{ github.ref }}]
+          echo [${{ github.event.pull_request.head.ref }}]
 
           echo "::set-env name=PR_TITLE::${PR_TITLE}"
           echo "::set-env name=PR_BODY::${PR_BODY}"
