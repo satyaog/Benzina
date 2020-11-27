@@ -30,7 +30,7 @@ jobs:
         run: |        
           git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git config --global user.name "Github Actions"
-          git remote add -f upstream https://github.com/obilaniu/Benzina master
+          git remote add -f upstream https://github.com/obilaniu/Benzina
           echo [$USERNAME:$TOKEN]
           git remote add mila-iqia https://$USERNAME:$TOKEN@github.com/mila-iqia/Benzina.git
         env:
