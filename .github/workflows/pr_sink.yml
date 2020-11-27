@@ -48,8 +48,8 @@ jobs:
       - name: Prepare to sync PR
         run: |
           PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
-          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
-          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
+          export PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
+          export PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
