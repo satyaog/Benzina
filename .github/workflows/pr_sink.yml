@@ -52,8 +52,8 @@ jobs:
           echo [${{ github.event.number }}]
 
           echo [${{ github.event.pull_request.number }}]
-          echo [${{ github.event.pull_request.title }}]
-          echo [${{ github.event.pull_request.body }}]
+          echo ["${{ github.event.pull_request.title }}"]
+          echo ["${{ github.event.pull_request.body }}"]
           
           echo [${{ github.ref }}]
 
