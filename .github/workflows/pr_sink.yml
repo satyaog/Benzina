@@ -48,24 +48,15 @@ jobs:
       - name: Prepare to sync PR
         run: |
           echo [${{ github.repository }}]
-          echo [${{ github.event.id }}]
-          
-          echo [${{ github.event }}]
+
           echo [${{ github.event.number }}]
-          echo [${{ github.event.title }}]
-          echo [${{ github.event.body }}]
-          
-          echo [${{ github.event.pull_request }}]
+
           echo [${{ github.event.pull_request.number }}]
           echo [${{ github.event.pull_request.title }}]
           echo [${{ github.event.pull_request.body }}]
           
-          PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
-          echo [$PR]
-          PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
-          PR_BODY="`echo -n "$PR" | grep body | cut -d'"' -f4`"
-          echo [$PR_TITLE]
-          echo [$PR_BODY]
+          echo [${{ github.ref }}]
+
           echo "::set-env name=PR_TITLE::${PR_TITLE}"
           echo "::set-env name=PR_BODY::${PR_BODY}"
 
@@ -103,19 +94,19 @@ jobs:
 #           git remote -v
 #           git push origin upstream/master:master
 
-      - name: Debug PR
-        run: |
-          printf ["$PR_TITLE"]
-          echo
-          printf ["$PR_BODY"]
-          echo
-          printf ["$PR_TITLE__"]
-          echo
-          printf ["$PR_BODY__"]
-          echo
-        env:
-          PR_TITLE__: $PR_TITLE
-          PR_BODY__: $PR_BODY
+#       - name: Debug PR
+#         run: |
+#           printf ["$PR_TITLE"]
+#           echo
+#           printf ["$PR_BODY"]
+#           echo
+#           printf ["$PR_TITLE__"]
+#           echo
+#           printf ["$PR_BODY__"]
+#           echo
+#         env:
+#           PR_TITLE__: $PR_TITLE
+#           PR_BODY__: $PR_BODY
 
 #       - uses: actions/checkout@v2
 #         with:
@@ -123,9 +114,9 @@ jobs:
 #         name: Checkout base branch
 #       - uses: peter-evans/create-pull-request@v3
 #         with:
-#           title: $PR_TITLE
+#           title: ${{ github.event.pull_request.title }}
 #           body: |
-#             $PR_BODY
+#             ${{ github.event.pull_request.body }}
 #           branch: ${{ github.ref }}
 #           push-to-fork: satyaog/Benzina
 #           delete-branch: true
