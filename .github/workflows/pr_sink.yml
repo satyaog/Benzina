@@ -49,6 +49,17 @@ jobs:
         run: |
           echo [${{ github.repository }}]
           echo [${{ github.event.id }}]
+          
+          echo [${{ github.event }}]
+          echo [${{ github.event.number }}]
+          echo [${{ github.event.title }}]
+          echo [${{ github.event.body }}]
+          
+          echo [${{ github.event.pull_request }}]
+          echo [${{ github.event.pull_request.number }}]
+          echo [${{ github.event.pull_request.title }}]
+          echo [${{ github.event.pull_request.body }}]
+          
           PR="`curl https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.id }} 2>/dev/null`"
           echo [$PR]
           PR_TITLE="`echo -n "$PR" | grep title | cut -d'"' -f4`"
